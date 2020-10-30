@@ -20,8 +20,6 @@ class CAVI(object):
         self.A = A  # size of action set
         self.O = O  # size of observation set
         self.Z = Z  # truncation level for q
-        # self.LB = -np.inf
-        # self.LB_diff = 1
         #initialize first prior models
         self.prior_param()
         
@@ -105,8 +103,9 @@ class CAVI(object):
         # compute reweighted reward
         self.reweight_reward()
         # calc initial ELBO(q)
-        self.elbo_values = [self.calc_ELBO()]
-        
+        self.elbo_values = [-np.inf]
+        self.update_z()
+        self.update_pi()
 # =============================================================================
 #         # CAVI iteration
 #         for it in range(1, max_iter + 1):
@@ -243,21 +242,24 @@ class CAVI(object):
     
     
     def update_v(self):
-        return
+        self.sigma = np.ones((self.N, self.A, self.O, self.Z, self.Z))
+        
+
     
     def update_pi(self):
         self.phi[...] = self.theta[...]
+        update = np.zeros(self.phi.shape)
         
-        for n in range(self.N):
-            update = np.zeros(self.phi.shape)
+        n_k_pair = itt.product(range(self.N), range(self.ep))
+        for (n, k) in n_k_pair:
             
-            temp = np.where(self.action[n] >= 0)
-            act_k_t = tuple(zip(temp[0], temp[1]))
-            
-            for (k, t) in act_k_t:
-                q = self.qz[n][k] * self.qz[n][k].shape[0] - t
+            aa = self._action[n][k]
+            q = self.qz[n][k]
+            for i, a in enumerate(aa):
+                update[n, :, a] += (q[i] * (q.shape[0] - i + 1))
                 
-            
+        update /= self.ep
+        self.phi += update
             
     
     def update_alpha(self):
