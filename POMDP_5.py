@@ -7,6 +7,7 @@ In this file we define the infinite-horizon POMDP model
 import Variables as var
 import itertools as it
 import numpy as np
+import pandas as pd
 from SB_prior import behavior_policy, uniform_policy
 
 
@@ -29,6 +30,7 @@ class POMDP(object):
         set is a dict, in which each action is an entry {key: value}, key = index
         and value = action.
         '''
+        self.O = 20
         # build each action tuple: (ch#, slots, transmission time)
         # if ch# not 0 -> agent in active, slots = # of backoff slots
         # if ch# = 0 -> agent in idle, slots = 0, transmission time = idle time (ms)
@@ -43,9 +45,9 @@ class POMDP(object):
         # list of unique (act, obv, reward) tuple for each agent
         # used to compute truncation level
         self.unique_a_o_r = [set() for i in range(var.N)]
-        # initialize global observation dict
-        # key: observation value, value: observation index
-        self.observation = {}
+        # initialize obv dataframe 
+        c = {'value': -1 * np.ones(self.O)}
+        self.observation = pd.DataFrame(c)
         
     
     def init_behavior_policy(self, T):
@@ -60,7 +62,6 @@ class POMDP(object):
         '''
         # policy list for each agent
         self.policies = []
-        self.test = 1e6
         # generate initial policies for agents
         for i in range(var.N):
             policy = uniform_policy(self.action_set)
@@ -82,13 +83,13 @@ class POMDP(object):
         -------
         Generate behavior policy, and perform interaction.
         '''
+        self.Z = Z
         # policy list for each agent
         self.policies = []
-        self.test = len(self.observation)
         # generate initial policies for LTE agents
         for i in range(var.N):
-            policy = behavior_policy(len(self.action_set), len(self.observation), Z+1, 0)
-            # policy = behavior_policy(len(self.action_set), len(self.observation), Z+1, epsilon)
+            policy = behavior_policy(len(self.action_set), self.O, Z, epsilon)
+            # policy = behavior_policy(len(self.action_set), len(self.observation), Z, epsilon)
             self.policies.append(policy)
                     
         # collect
@@ -161,7 +162,7 @@ class POMDP(object):
                     # find previous observation
                     temp_o = obv_history[n, :self.t]
                     pre_obv = temp_o[temp_o >= 0][-1]
-                    assert pre_obv < self.test
+                    
                     # find current node given previous node, action, observation
                     node_index = self.policies[n].next_node(pre_node, pre_act, pre_obv)
                     act_index = self.policies[n].select_action(node_index)
@@ -178,26 +179,33 @@ class POMDP(object):
                 # if some agents compute their rewards, episode proceeds
                 if comp_rwd.size != 0:
                     # compute golbal rewards (round to reduce possible number of values)
-                    global_reward[self.t] = round(sum(map(self.reward, comp_rwd)))
+                    rr = round(sum(map(self.reward, comp_rwd)))
+                    # bound reward value
+                    global_reward[self.t] = max(min(40, rr), -40)
+                    
                     
                     for nn in comp_rwd:
                         # add action index to action history
                         act_history[nn, self.t] = self.agents[nn, -1]
                         # add observation to action history
-                        obv_ = round(self.agentTimer[nn, 1] - self.agentTimer[nn, 0], 2)
+                        obv_ = round(self.agentTimer[nn, 1] - self.agentTimer[nn, 0])
+                        # bound observation value
+                        obv_ = min(obv_, 20)
                         
                         # if it is new observation, add to observation set
                         # used to compute size of observation set
-                        if obv_ not in self.observation:
-                            self.observation[obv_] = len(self.observation)
+                        if self.observation.loc[self.observation['value'] == obv_].empty:
+                            l = self.observation.loc[self.observation['value'] != -1]
+                            self.observation.loc[l.size, 'value'] = obv_
                         
-                        obv_history[nn, self.t] = self.observation[obv_]
+                        obv_history[nn, self.t] = self.observation.index[self.observation['value'] == obv_][0]
                         
                         # check (act, obv, reward) is unique tuple for agent n,
                         # add it to unique set, this set will be used to compute
                         # the truncation level for agent n
-                        a_o_r = (act_history[nn, self.t], obv_history[nn, self.t], global_reward[self.t])
+                        a_o_r = (obv_history[nn, self.t], global_reward[self.t])
                         self.unique_a_o_r[nn].add(a_o_r)
+                        assert len(self.unique_a_o_r[nn]) < 200
                         
                     # episode proceeds
                     self.t += 1
@@ -396,3 +404,4 @@ class POMDP(object):
         self.agentTimer[n, 2] = 1
         # clear transmission start bit
         self.agentTimer[n, 3] = 0
+        

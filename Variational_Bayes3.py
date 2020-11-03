@@ -39,13 +39,8 @@ class CAVI(object):
         self.theta = np.ones((self.N, self.Z, self.A))
         
         # parameters of p(alpha|c, d) for (n, a, o, i) LTE & WiFi agents
-        self.c = np.ones((self.N, self.A, self.O, self.Z))
-        self.d = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
-        
-        # define initial node distribution (deterministic) for all agents
-        # p(z = 1) = 1 & p(z = 2, ..., |Z|) = 0 for all agents
-        self.eta = np.zeros((self.N, self.Z))
-        self.eta[:, 0] = 1
+        self.c = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
+        self.d = 1e-6 * np.ones((self.N, self.A, self.O, self.Z))
     
     
     def init_q_param(self):
@@ -71,7 +66,7 @@ class CAVI(object):
         self.qz = [[] for i in range(self.N)]
         
         
-    def fit(self, data, policy_list, max_iter = 150, tol = 1e-4):
+    def fit(self, data, policy_list, max_iter = 10, tol = 1e-4):
         '''
         Parameters
         ----------
@@ -86,6 +81,15 @@ class CAVI(object):
         self.policy_list = policy_list  # behavior policy
         self.data = data  # trajectories
         self.ep = len(self.data) # get number of episodes
+        
+        # extract initial node distribution
+        self.eta = np.array(list(map(lambda n: policy_list[n].eta, range(self.N))))
+        
+        # extract action & node trans probabilities for each agent from polict list
+        self.behave_act_prob = map(lambda n: policy_list[n].action_prob, range(self.N))
+        self.behave_act_prob = np.array(list(self.behave_act_prob))
+        self.behave_node_prob = map(lambda n: policy_list[n].node_prob, range(self.N))
+        self.behave_node_prob = np.array(list(self.behave_node_prob))
         
         # extract action & obv histories of each agent
         self.action = []
@@ -112,8 +116,9 @@ class CAVI(object):
         # CAVI iteration
         for it in range(1, max_iter + 1):
             # CAVI update
-            self.calc_phi_omega() # calc expected pi & omega for q(z) & q(V) computation
+            self.calc_phi_omega() # calc ML pi & omega
             self.update_z()     # update each q(z) distribution
+            self.reweight_nu()  # compute \hat{nu}
             self.update_v()     # update each q(v) distribution
             self.update_pi()    # update each q(pi) distribution
             self.update_alpha() # update each q(alpha) distribution
@@ -178,38 +183,35 @@ class CAVI(object):
         qphi -= loggamma(self.phi)
         lowerbound -= qphi.sum()
         
-        # (7) ln(r) term in E[ln(q(z))]
-        lnr = np.log(self.reweight_r)
-        lowerbound += lnr.sum()
+        # # (7) ln(r) term in E[ln(q(z))]
+        # lnr = np.log(self.reweight_r)
+        # lowerbound += lnr.sum()
                 
-        # (8) E[ln(pi)] & E[ln(omega)] terms in E[ln(q(z))]
-        # build omega
-        _dphi = np.sum(dphi, axis = -2)
-        _omega = np.zeros(self.sigma.shape)
-        _omega[..., : -1] = (d1 - d12)[..., : -1]
-        t1 = (d2 - d12)[..., 0: -1]
-        _omega[..., 1:] += t1.cumsum(axis = -1)
+        # # (8) E[ln(pi)] & E[ln(omega)] terms in E[ln(q(z))]
+        # # build omega
+        # _dphi = np.sum(dphi, axis = -2)
+        # _omega = np.zeros(self.sigma.shape)
+        # _omega[..., : -1] = (d1 - d12)[..., : -1]
+        # t1 = (d2 - d12)[..., 0: -1]
+        # _omega[..., 1:] += t1.cumsum(axis = -1)
         
-        likelihood = 0
-        n_k_pair = itt.product(range(self.N), range(self.ep))
-        for (n, k) in n_k_pair:
-            # get act #
-            aa = tuple(self._action[n][k])
-            # get obv #
-            oo = tuple(self._obv[n][k])
+        # likelihood = 0
+        # n_k_pair = itt.product(range(self.N), range(self.ep))
+        # for (n, k) in n_k_pair:
+        #     # get act #
+        #     aa = tuple(self._action[n][k])
+        #     # get obv #
+        #     oo = tuple(self._obv[n][k])
             
-            tt = np.ones(len(aa)).cumsum()[::-1]
-            _act = _dphi[n, aa] * tt
-            likelihood += _act.sum()
+        #     tt = np.ones(len(aa)).cumsum()[::-1]
+        #     _act = _dphi[n, aa] * tt
+        #     likelihood += _act.sum()
             
-            om = _omega[n, aa, oo, ...]
-            om = np.sum(om, axis = (1, 2)) * tt
-            likelihood += om.sum()
-            
-            # for i, a_o in enumerate(zip(aa, oo)):
-            #     likelihood += _omega[n, a_o[0], a_o[1], ...].sum() * (len(aa) - i + 1)
+        #     om = _omega[n, aa, oo, ...]
+        #     om = np.sum(om, axis = (1, 2)) * tt
+        #     likelihood += om.sum()
         
-        lowerbound += likelihood
+        # lowerbound += likelihood
         
         assert np.isscalar(lowerbound)
         return lowerbound
@@ -233,13 +235,15 @@ class CAVI(object):
         t1 = (d2 - d12)[..., 0: -1]
         self.omega[..., 1:] += t1.cumsum(axis = -1)
         self.omega = np.exp(self.omega)
+        self.omega /= np.sum(self.omega, axis = -1)[..., np.newaxis]
     
 
     def update_z(self):
-        
+        self.v_hat = np.ones(self.reweight_r.shape)
         n_k_pair = itt.product(range(self.N), range(self.ep))
         
         for (n, k) in n_k_pair:
+            
             # extract action history for agent n at episode k
             temp = self.action[n][k, :]
             index = np.where(temp >= 0)[0]
@@ -266,9 +270,10 @@ class CAVI(object):
                 
                 t1 *= self.pi[n, :, act_n_k[i]]
                 t1 *= self.reweight_r[k, t]
-                assert np.sum(t1) > 0
-                qz_n_k[i, :] = t1 / np.sum(t1)
-                
+                t2 = np.sum(t1)
+                assert t2 > 0
+                qz_n_k[i, :] = t1 / t2
+                self.v_hat[k, t] *= t2
             
             self.qz[n].append(qz_n_k)
     
@@ -284,6 +289,10 @@ class CAVI(object):
             aa = tuple(self._action[n][k])
             # get obv #
             oo = tuple(self._obv[n][k])
+            # get nu_t^k
+            v = tuple(np.where(self.action[n][k] >= 0)[0])
+            v = self.nu[k, v]
+            
             tt = np.ones(len(aa)).cumsum()[::-1]
             
             # update parameter sigma
@@ -294,6 +303,7 @@ class CAVI(object):
             # times node trans prob
             q = q[..., np.newaxis] * self.omega[n, aa, oo, ...]
             q *= tt[..., None, None]
+            # q *= v[..., None, None]
             q = np.array(q, ndmin = 3)
             self.sigma[n, aa, oo, ...] += q
             
@@ -316,9 +326,15 @@ class CAVI(object):
         for (n, k) in n_k_pair:
             # get act #
             aa = tuple(self._action[n][k])
+            # get q(z)
             q = self.qz[n][k]
+            # get nu_t^k
+            v = tuple(np.where(self.action[n][k] >= 0)[0])
+            v = self.nu[k, v]
+            
             tt = np.ones(len(aa)).cumsum()[::-1]
             q *= tt[..., np.newaxis]
+            # q *= v[..., np.newaxis]
             self.phi[n, :, aa] += q
             # for i, a in enumerate(aa):
             #     self.phi[n, :, a] += (q[i] * (q.shape[0] - i + 1))
@@ -333,7 +349,53 @@ class CAVI(object):
         self.a = self.c + self.Z
         self.b = self.d - np.sum(d2d12, axis = -1)
                 
-    
+
+    def reweight_nu(self):
+        # extract rewards from each episode
+        self.nu = np.zeros(self.reweight_r.shape)
+                
+        # in each episode, compute reweighted rewards
+        for k in range(self.ep):
+            # initialize p(z) array to track p(z_{t-1}, a_{t-1}, ..., a_0)
+            q_ao = np.empty_like(self.eta)
+            q_ao[...] = self.eta
+            # action tracker array, used to track the order of action for each agent
+            action_num = np.zeros(self.N, dtype = np.int)
+            
+            # get action & observation arrays for episode k
+            act_array = self.data[k][0]
+            for t in range(self.T):
+                # extract the agents who contribute reward at time k
+                agent_idx = tuple(np.where(act_array[:, t] >= 0)[0])
+                
+                # extract initial node prob for optimal policy
+                q_eta = np.array(q_ao[agent_idx, ...], ndmin = 2)
+                
+                # if t > 0, need to times p(z|z, a, o) extra
+                for ii, nn in enumerate(agent_idx):
+                    if action_num[nn] > 0:
+                        act_pre = self._action[nn][k][action_num[nn] - 1]
+                        obv_pre = self._obv[nn][k][action_num[nn] - 1]
+                        
+                        q_node = np.array(self.omega[nn, act_pre, obv_pre, ...])
+                        
+                        q_eta[ii] = (q_node * q_eta[ii, :, np.newaxis]).sum(axis = 0)
+                    
+                    # extract their action #
+                    act_idx = act_array[nn, t]
+                    # extract corresponding taken action prob given all nodes
+                    q_act = self.pi[nn, :, act_idx]
+                    # compute p(a,z)=p(z)p(a|z)
+                    q_eta[ii] *= q_act
+                    
+                    # replace p(z)
+                    q_ao[nn, :] = q_eta[ii, :]
+                        
+                action_num[np.array(agent_idx)] += 1
+                self.nu[k, t] = self.reweight_r[k, t] * np.prod(np.sum(q_eta, axis = -1)) #/ self.v_hat[k, t]
+
+
+
     def reweight_reward(self):
         # extract rewards from each episode
         rewards = np.array(list(map(lambda t: t[2], self.data)))
@@ -342,55 +404,58 @@ class CAVI(object):
         # rescale rewards
         r_max = np.max(rewards)
         r_min = np.min(rewards)
-        rewards = (1 - self.gamma) * (rewards - r_min + 1) / (r_max - r_min + 1)
+        rewards = (rewards - r_min + 1) / (r_max - r_min + 1)
         
         # impose discount factor
-        reward_ = rewards.transpose()
-        reward_ = np.array(list(map(lambda x, t: x*(self.gamma**t), reward_, range(self.T))))
-        rewards = reward_.transpose()
+        ga = np.ones((self.ep, self.T))
+        ga[:, 1:] *= 0.9
+        rewards *= np.cumprod(ga, axis = 1)
         
         # in each episode, compute reweighted rewards
         for k in range(self.ep):
             # initialize p(z) array to track p(z_{t-1}, a_{t-1}, ..., a_0)
-            pz = np.array(list(map(lambda x: x.eta, self.policy_list)))
+            p_ao = np.empty_like(self.eta)
+            p_ao[...] = self.eta
             # action tracker array, used to track the order of action for each agent
             action_num = np.zeros(self.N, dtype = np.int)
             
-            # reward array for episode k
-            rwd_k = rewards[k, :]
-            # get action & observation arrays
+            # get action & observation arrays for episode k
             act_array = self.data[k][0]
-            obv_array = self.data[k][1]
+            # obv_array = self.data[k][1]
             for t in range(self.T):
-                # extract the agents who contribute reward at time k
-                agent_idx = np.where(act_array[:, t] >= 0)[0]
-                # extract their initial node prob
-                p_eta = pz[agent_idx]
-                # extract their action prob given node
-                act_idx = act_array[agent_idx, t]
-                # extract corresponding taken action prob given all nodes
-                p_act = np.array(list(map(lambda n,a: self.policy_list[n].action_prob[:,a],agent_idx,act_idx)))
-                # compute p(a|z)
-                p_eta *= p_act
+                # extract agents # who contribute to reward at time t
+                agent_idx = tuple(np.where(act_array[:, t] >= 0)[0])
                 
-                # if t > 0, need to times p(z|z, a, o) extra
+                # extract p(z_t-1, a_t-1, ..., a_0)
+                p_eta = np.array(p_ao[agent_idx, ...], ndmin = 2)
+                
+                # if t > 0, need to multiply p(z|z, a, o) extra
                 for ii, nn in enumerate(agent_idx):
                     if action_num[nn] > 0:
-                        assert act_array[nn, t] >= 0
-                        assert obv_array[nn, t] >= 0
-                        p_node = self.policy_list[nn].node_prob[act_array[nn, t], obv_array[nn, t],...]
-                        temp = p_node * p_eta[ii, np.newaxis]
-                        p_eta[ii] = np.sum(temp, axis = -2)
+                        act_pre = self._action[nn][k][action_num[nn] - 1]
+                        obv_pre = self._obv[nn][k][action_num[nn] - 1]
+                        # extract p(z_t|z_t-1, a_t-1, o_t)
+                        p_node = np.array(self.behave_node_prob[nn, act_pre, obv_pre, ...])
+                        # p(z_t, a_t-1, ..., a_0)
+                        p_eta[ii] = (p_node * p_eta[ii, :, np.newaxis]).sum(axis = 0)
+                    
+                    # extract action #
+                    act_idx = act_array[nn, t]
+                    # extract p(a_t|z_t)
+                    p_act = self.behave_act_prob[nn, :, act_idx]
+                    # compute p(z_t, a_t, ..., a_0)
+                    p_eta[ii] *= p_act
+                    
                     # replace p(z)
-                    pz[nn, :] = p_eta[ii, :]
+                    p_ao[nn, :] = p_eta[ii, :]
                         
-                    action_num[nn] += 1
+                action_num[np.array(agent_idx)] += 1
                                     
                 assert np.prod(np.sum(p_eta, axis = -1)) > 0
-                self.reweight_r[k, t] = rwd_k[t] / np.prod(np.sum(p_eta, axis = -1))
-        
-        
-    def clac_node_number(self):
+                self.reweight_r[k, t] = rewards[k, t] / np.prod(np.sum(p_eta, axis = -1))
+
+
+    def calc_node_number(self):
         # compute the converged node number for each agent's FSC policy
         self.node_num = np.zeros(self.N)
         
