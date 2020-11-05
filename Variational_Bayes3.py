@@ -64,7 +64,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 5, tol = 1e-4):
+    def fit(self, data, policy_list, max_iter = 50, tol = 1e-2):
         '''
         Parameters
         ----------
@@ -224,7 +224,7 @@ class CAVI(object):
         d12 = digamma(self.sigma + self.lambda_)
         self.omega = np.zeros(self.sigma.shape)
         # build trans prob to node 1
-        self.omega[..., : -1] = (d1 - d12)[..., : -1]
+        self.omega[...] = (d1 - d12)#self.omega[..., : -1] = (d1 - d12)[..., : -1]
         # build trans prob to node 2~|Z|-1
         t1 = (d2 - d12)[..., 0: -1]
         self.omega[..., 1:] += t1.cumsum(axis = -1)
@@ -261,7 +261,7 @@ class CAVI(object):
                 if i == 0:
                     t1 = np.array(qz_n_k[i, :])
                 else:
-                    t1 = np.array(qz_n_k[i - 1, :])
+                    # t1 = np.array(qz_n_k[i - 1, :])
                     t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
                     t1 = np.sum(t1, axis = 0)
                 
