@@ -54,19 +54,17 @@ class CAVI(object):
         self.lambda_ = np.ones((self.N, self.A, self.O, self.Z, self.Z))
         
         # parameter of q(pi|z, phi) for (n, i) agent
-        self.phi = self.theta[...]
+        self.phi = np.empty_like(self.theta)
+        self.phi[...] = self.theta
         
         # parameters of q(alpha| a, b) for each (n, a, o, i) agent
-        self.a = self.c[...]
-        self.b = self.d[...]
-        
-        # initialize marginal q(z) for each (n, k) indices
-        # each element = arrays of q(z) for each (n, k) agent
-        # each array has dimension T_k * |Z|
-        self.qz = [[] for i in range(self.N)]
+        self.a = np.empty_like(self.c)
+        self.a[...] = self.c
+        self.b = np.empty_like(self.d)
+        self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 10, tol = 1e-4):
+    def fit(self, data, policy_list, max_iter = 5, tol = 1e-4):
         '''
         Parameters
         ----------
@@ -112,13 +110,13 @@ class CAVI(object):
         # compute reweighted reward
         self.reweight_reward()
         # calc initial ELBO(q)
-        self.elbo_values = [-np.inf]
+        self.elbo_values = [self.calc_ELBO()]
         # CAVI iteration
         for it in range(1, max_iter + 1):
             # CAVI update
-            self.calc_phi_omega() # calc ML pi & omega
+            self.calc_pi_omega() # calc ML pi & omega
             self.update_z()     # update each q(z) distribution
-            self.reweight_nu()  # compute \hat{nu}
+            # self.reweight_nu()  # compute \hat{nu}
             self.update_v()     # update each q(v) distribution
             self.update_pi()    # update each q(pi) distribution
             self.update_alpha() # update each q(alpha) distribution
@@ -129,10 +127,6 @@ class CAVI(object):
             if np.abs(self.elbo_values[-2] - self.elbo_values[-1]) <= tol:
                 # print('CAVI converged with ELBO(q) %.3f at iteration %d'%(self.elbo_values[-1], it))
                 break
-        
-        # iteration terminates but still cannot converge
-        # if it == max_iter:
-        #     print('CAVI ended with ELBO(q) %.f'%(self.elbo_values[-1]))
         
     
     def calc_ELBO(self):
@@ -217,7 +211,7 @@ class CAVI(object):
         return lowerbound
     
     
-    def calc_phi_omega(self):
+    def calc_pi_omega(self):
         # build action prob pi
         t1 = digamma(np.sum(self.phi, axis = -1))
         self.pi = np.exp(digamma(self.phi) - t1[..., np.newaxis])
@@ -239,6 +233,11 @@ class CAVI(object):
     
 
     def update_z(self):
+        # initialize marginal q(z) for each (n, k) indices
+        # each element = arrays of q(z) for each (n, k) agent
+        # each array has dimension T_k * |Z|
+        self.qz = [[] for i in range(self.N)]
+        
         self.v_hat = np.ones(self.reweight_r.shape)
         n_k_pair = itt.product(range(self.N), range(self.ep))
         
@@ -254,22 +253,19 @@ class CAVI(object):
             obv_n_k = temp[index]
             
             # create q(z) table for agent n at episode k
-            assert len(index) <= self.T
             qz_n_k = np.zeros((len(index), self.Z))
             qz_n_k[0, :] = self.eta[n, :]
-            assert np.sum(qz_n_k[0, :]) > 0
             
             for i, t in enumerate(index):
                 # if this is the 1st action
                 if i == 0:
-                    t1 = qz_n_k[i, :]
+                    t1 = np.array(qz_n_k[i, :])
                 else:
-                    t1 = qz_n_k[i - 1, :]
+                    t1 = np.array(qz_n_k[i - 1, :])
                     t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
                     t1 = np.sum(t1, axis = 0)
                 
                 t1 *= self.pi[n, :, act_n_k[i]]
-                t1 *= self.reweight_r[k, t]
                 t2 = np.sum(t1)
                 assert t2 > 0
                 qz_n_k[i, :] = t1 / t2
@@ -280,7 +276,7 @@ class CAVI(object):
     
     def update_v(self):
         
-        self.sigma = np.zeros((self.N, self.A, self.O, self.Z, self.Z))
+        self.sigma = np.ones((self.N, self.A, self.O, self.Z, self.Z))
         self.lambda_ = np.zeros((self.N, self.A, self.O, self.Z, self.Z))
         
         n_k_pair = itt.product(range(self.N), range(self.ep))
@@ -290,14 +286,14 @@ class CAVI(object):
             # get obv #
             oo = tuple(self._obv[n][k])
             # get nu_t^k
-            v = tuple(np.where(self.action[n][k] >= 0)[0])
-            v = self.nu[k, v]
+            # v = tuple(np.where(self.action[n][k] >= 0)[0])
+            # v = self.nu[k, v]
             
             tt = np.ones(len(aa)).cumsum()[::-1]
             
             # update parameter sigma
             # get q(z) array for agent n, episode k
-            q = self.qz[n][k]
+            q = np.array(self.qz[n][k])
             # times action prob
             q *= self.pi[n, :, aa]
             # times node trans prob
@@ -311,26 +307,23 @@ class CAVI(object):
             qq = np.cumsum(q[..., -1:0:-1], axis = -1)[..., ::-1]
             self.lambda_[n, aa, oo, :, :-1] += qq
             
-            
-        self.sigma += 1
-        
-        t1 = np.zeros(self.lambda_.shape) + (self.a / self.b)[..., None]
         # self.lambda_ /= self.ep
-        self.lambda_ += t1
+        self.lambda_ += (self.a / self.b)[..., None]
 
     
     def update_pi(self):
-        self.phi = np.zeros(self.theta.shape)
+        self.phi = np.empty_like(self.theta)
+        self.phi[...] = self.theta
         
         n_k_pair = itt.product(range(self.N), range(self.ep))
         for (n, k) in n_k_pair:
             # get act #
             aa = tuple(self._action[n][k])
             # get q(z)
-            q = self.qz[n][k]
+            q = np.array(self.qz[n][k])
             # get nu_t^k
-            v = tuple(np.where(self.action[n][k] >= 0)[0])
-            v = self.nu[k, v]
+            # v = tuple(np.where(self.action[n][k] >= 0)[0])
+            # v = self.nu[k, v]
             
             tt = np.ones(len(aa)).cumsum()[::-1]
             q *= tt[..., np.newaxis]
@@ -340,7 +333,6 @@ class CAVI(object):
             #     self.phi[n, :, a] += (q[i] * (q.shape[0] - i + 1))
                 
         # self.phi /= self.ep
-        self.phi += self.theta
             
     
     def update_alpha(self):
@@ -378,7 +370,6 @@ class CAVI(object):
                         obv_pre = self._obv[nn][k][action_num[nn] - 1]
                         
                         q_node = np.array(self.omega[nn, act_pre, obv_pre, ...])
-                        
                         q_eta[ii] = (q_node * q_eta[ii, :, np.newaxis]).sum(axis = 0)
                     
                     # extract their action #
