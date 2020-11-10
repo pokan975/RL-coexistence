@@ -55,56 +55,6 @@ import numpy as np
 #     policy = FSC_policy(action_prob, W)
 #     
 #     return policy
-#     
-# 
-# 
-# class FSC_policy(object):
-#     '''
-#     define object of finite state controller policy
-#     '''
-#     def __init__(self, action_prob, node_prob):
-#         self.action_prob = action_prob
-#         self.node_prob = node_prob
-#         
-#     def select_action(self, node: int):
-#         '''
-#         Parameters
-#         ----------
-#         node : int
-#             current node.
-#         Returns
-#         -------
-#         output the index of action to take given node.
-#         '''
-#         # extract probability vector for given node
-#         prob_set = self.action_prob[node, :]
-#         # pick an action
-#         act = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
-#         
-#         return np.where(act == 1)[0][0]
-#         
-#     
-#     def next_node(self, cur_node: int, act: int, obs: int):
-#         '''
-#         Parameters
-#         ----------
-#         act : int
-#             index of action taken.
-#         obs : int
-#             index of observation received after act is taken.
-#         cur_node : int
-#             index of current node.
-#         Returns
-#         -------
-#         output node distribution for next step given action, obseration, and 
-#         current node.
-#         '''
-#         # extract probability vector for given node, action, observation
-#         prob_set = self.node_prob[act, obs, cur_node, :]
-#         # pick a noode
-#         node = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
-#         
-#         return np.where(node == 1)[0][0]
 # =============================================================================
 
 
@@ -130,32 +80,41 @@ class uniform_policy(object):
 
 
 class behavior_policy(object):
-    def __init__(self, A, O, Z, epsilon):
+    def __init__(self, A, O, Z, epsilon, posterior = None):
         self.A = A
         self.O = O
         self.Z = Z
         self.epsilon = epsilon
+        self.posterior = posterior
         self.prob_table()
+        self.t = 0  # indicator for initial state
         
     def prob_table(self):
-        #initial node distribution
+        # initial node distribution
         self.eta = np.zeros(self.Z)
         self.eta[0] = 1
+        
+        self.pz = np.array(self.eta)
         
         # uniform node transition prob
         self.node_prob = np.ones((self.A, self.O, self.Z, self.Z))
         self.node_prob /= np.sum(self.node_prob, axis = 3)[...,np.newaxis]
-        # uniform action prob
-        self.action_prob = np.random.dirichlet([1.]*self.A, self.Z)
-        # self.action_prob = np.ones((self.Z, self.A))
-        # self.action_prob /= np.sum(self.action_prob, axis = 1)[:, np.newaxis]
         
-        # epsilon greedy
-        if self.epsilon != 0:
-            self.greedy_prob()
+        # uniform exploration action probabilities
+        explore_act = np.ones((self.Z, self.A))
+        explore_act /= np.sum(explore_act, axis = 1)[:, np.newaxis]
+        
+        if self.epsilon <= 0:
+            # initial exploitation action probabilities
+            exploit_act = np.array(explore_act)
+            
+        else:
+            assert self.posterior.shape == explore_act.shape
+            exploit_act = self.posterior / np.sum(self.posterior, axis = -1)[..., np.newaxis]
+            
+        # build action probability given node
+        self.action_prob = self.epsilon * explore_act + (1 - self.epsilon) * exploit_act
     
-    def greedy_prob(self):
-        return
     
     def select_action(self, node: int):
         '''
@@ -197,5 +156,8 @@ class behavior_policy(object):
         
         return np.where(node == 1)[0][0]
     
-    # def update_policy(self):
+    
+    def update_action(self):
+        if self.t == 0:
+             
         
