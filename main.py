@@ -30,11 +30,10 @@ vi = CAVI(var.L, var.W, act_setsize)
 
 
 # collecting initial data to generate initial behavior policy
-model.init_behavior_policy(500)
-# find initial number of nodes & observation set
-Z = 200
+# model.init_behavior_policy(500)
 # obv_setsize = len(model.observation)
-
+# truncated number of nodes
+Z = 200
 
 # learning loop
 for m in range(1):
@@ -61,7 +60,7 @@ for m in range(1):
 # RL learning main loop
 # for itation in range(max_iterations):
 
-plt.plot(vi.elbo_values)
+plt.plot(vi.elbo_values, marker = "o")
 plt.xlabel("iteration")
 plt.ylabel("ELBO value")
 plt.grid()

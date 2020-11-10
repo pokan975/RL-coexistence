@@ -64,7 +64,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 50, tol = 1e-2):
+    def fit(self, data, policy_list, max_iter = 20, tol = 1e-2):
         '''
         Parameters
         ----------
@@ -115,8 +115,8 @@ class CAVI(object):
         for it in range(1, max_iter + 1):
             # CAVI update
             self.calc_pi_omega() # calc ML pi & omega
+            self.reweight_nu()  # compute \hat{nu}
             self.update_z()     # update each q(z) distribution
-            # self.reweight_nu()  # compute \hat{nu}
             self.update_v()     # update each q(v) distribution
             self.update_pi()    # update each q(pi) distribution
             self.update_alpha() # update each q(alpha) distribution
@@ -238,7 +238,7 @@ class CAVI(object):
         # each array has dimension T_k * |Z|
         self.qz = [[] for i in range(self.N)]
         
-        self.v_hat = np.ones(self.reweight_r.shape)
+        # self.v_hat = np.ones(self.reweight_r.shape)
         n_k_pair = itt.product(range(self.N), range(self.ep))
         
         for (n, k) in n_k_pair:
@@ -268,8 +268,8 @@ class CAVI(object):
                 t1 *= self.pi[n, :, act_n_k[i]]
                 t2 = np.sum(t1)
                 assert t2 > 0
-                qz_n_k[i, :] = t1 / t2
-                self.v_hat[k, t] *= t2
+                qz_n_k[i, :] = t1 / t2#(t1 / t2) * self.nu[k, t]
+                # self.v_hat[k, t] *= t2
             
             self.qz[n].append(qz_n_k)
     
@@ -286,8 +286,8 @@ class CAVI(object):
             # get obv #
             oo = tuple(self._obv[n][k])
             # get nu_t^k
-            # v = tuple(np.where(self.action[n][k] >= 0)[0])
-            # v = self.nu[k, v]
+            v = tuple(np.where(self.action[n][k] >= 0)[0])
+            v = self.nu[k, v]
             
             tt = np.ones(len(aa)).cumsum()[::-1]
             
@@ -299,7 +299,7 @@ class CAVI(object):
             # times node trans prob
             q = q[..., np.newaxis] * self.omega[n, aa, oo, ...]
             q *= tt[..., None, None]
-            # q *= v[..., None, None]
+            q *= v[..., None, None]
             q = np.array(q, ndmin = 3)
             self.sigma[n, aa, oo, ...] += q
             
@@ -322,12 +322,12 @@ class CAVI(object):
             # get q(z)
             q = np.array(self.qz[n][k])
             # get nu_t^k
-            # v = tuple(np.where(self.action[n][k] >= 0)[0])
-            # v = self.nu[k, v]
+            v = tuple(np.where(self.action[n][k] >= 0)[0])
+            v = self.nu[k, v]
             
             tt = np.ones(len(aa)).cumsum()[::-1]
             q *= tt[..., np.newaxis]
-            # q *= v[..., np.newaxis]
+            q *= v[..., np.newaxis]
             self.phi[n, :, aa] += q
             # for i, a in enumerate(aa):
             #     self.phi[n, :, a] += (q[i] * (q.shape[0] - i + 1))
@@ -389,13 +389,13 @@ class CAVI(object):
 
     def reweight_reward(self):
         # extract rewards from each episode
-        rewards = np.array(list(map(lambda t: t[2], self.data)))
+        rewards = np.array(list(map(lambda t: t[2], self.data)), dtype = np.float)
         self.reweight_r = np.zeros(rewards.shape)
         
         # rescale rewards
         r_max = np.max(rewards)
         r_min = np.min(rewards)
-        rewards = (rewards - r_min + 1) / (r_max - r_min + 1)
+        rewards = (rewards - r_min + 1) #/ (r_max - r_min + 1)
         
         # impose discount factor
         ga = np.ones((self.ep, self.T))
@@ -404,9 +404,9 @@ class CAVI(object):
         
         # in each episode, compute reweighted rewards
         for k in range(self.ep):
-            # initialize p(z) array to track p(z_{t-1}, a_{t-1}, ..., a_0)
-            p_ao = np.empty_like(self.eta)
-            p_ao[...] = self.eta
+            # initialize p(z) array to track p(z_{t-1}, a_{t-1}, ..., a_0|o_t, ..., o_0)
+            p_az_o = np.empty_like(self.eta)
+            p_az_o[...] = self.eta
             # action tracker array, used to track the order of action for each agent
             action_num = np.zeros(self.N, dtype = np.int)
             
@@ -418,7 +418,7 @@ class CAVI(object):
                 agent_idx = tuple(np.where(act_array[:, t] >= 0)[0])
                 
                 # extract p(z_t-1, a_t-1, ..., a_0)
-                p_eta = np.array(p_ao[agent_idx, ...], ndmin = 2)
+                p_eta = np.array(p_az_o[agent_idx, ...], ndmin = 2)
                 
                 # if t > 0, need to multiply p(z|z, a, o) extra
                 for ii, nn in enumerate(agent_idx):
@@ -438,7 +438,7 @@ class CAVI(object):
                     p_eta[ii] *= p_act
                     
                     # replace p(z)
-                    p_ao[nn, :] = p_eta[ii, :]
+                    p_az_o[nn, :] = p_eta[ii, :]
                         
                 action_num[np.array(agent_idx)] += 1
                                     

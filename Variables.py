@@ -15,7 +15,7 @@ N = L + W  # number of total agents
 channels = [1] # number of total channels
 
 # length of each episode
-T = 20
+T = 50
 
 # =============================================================================
 # predefined parameters
