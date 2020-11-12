@@ -13,34 +13,28 @@ class CAVI(object):
     gamma = var.gamma  # discount factor
     T = var.T
     
-    def __init__(self, L, W, A):
+    def __init__(self, L, W, A, O, Z):
         self.L = L  # number of LTE agents
         self.W = W  # number of WiFi agents
         self.N = self.L + self.W
         self.A = A  # size of action set
-        
-    
-    def prior_param(self, O, Z):
-        '''
-        Parameters
-        ----------
-        O : int
-            size of observation set.
-        Z : int
-            truncation level for q.
-        Returns
-        -------
-        Initialize the prior distributions.
-        '''
         self.O = O  # size of observation set
         self.Z = Z  # truncation level for q
         
         # parameters of p(pi|z, theta) for (n, i) LTE & WiFi agents
-        self.theta = np.ones((self.N, self.Z, self.A))
+        self.phi = np.ones((self.N, self.Z, self.A))
         
         # parameters of p(alpha|c, d) for (n, a, o, i) LTE & WiFi agents
-        self.c = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
-        self.d = 1e-6 * np.ones((self.N, self.A, self.O, self.Z))
+        self.a = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
+        self.b = 1e-6 * np.ones((self.N, self.A, self.O, self.Z))
+    
+        
+    def update_prior(self):
+        # replace prior models with previous learned models
+        self.theta = np.array(self.phi)
+        
+        self.c = np.array(self.a)
+        self.d = np.array(self.b)
     
     
     def init_q_param(self):
@@ -64,7 +58,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 20, tol = 1e-2):
+    def fit(self, data, policy_list, max_iter = 150, tol = 1e-2):
         '''
         Parameters
         ----------
@@ -448,8 +442,10 @@ class CAVI(object):
 
     def calc_node_number(self):
         # compute the converged node number for each agent's FSC policy
-        self.node_num = np.zeros(self.N)
+        node_num = np.zeros(self.N)
         
         for n in range(self.N):
             a1 = np.sum(self.phi[n] - self.theta[n], axis = -1)
-            self.node_num[n] = len(a1[a1 > 0])
+            node_num[n] = len(a1[a1 > 0])
+            
+        return node_num
