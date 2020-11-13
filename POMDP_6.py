@@ -8,7 +8,7 @@ import Variables as var
 import itertools as it
 import numpy as np
 import pandas as pd
-from SB_prior import behavior_policy2
+from SB_prior import behavior_policy2, eval_policy
 
 
 
@@ -50,7 +50,7 @@ class POMDP(object):
         self.observation = pd.DataFrame(c)
         
            
-    def collect_episode(self, epi, T, Z, epsilon, posterior):
+    def collect_episode(self, epi, T, Z, epsilon, phi, sigma, lambda_):
         '''
         Parameters
         ----------
@@ -62,7 +62,7 @@ class POMDP(object):
             truncated number of nodes.
         epsilon : float
             greedy exploration factor.
-        posterior : array of arrays or None
+        phi : array of arrays or None
             previous learned phi parameters for action distribution.
         Returns
         -------
@@ -73,13 +73,23 @@ class POMDP(object):
         self.policies = []
         # generate initial policies for LTE agents
         for i in range(var.N):
-            policy = behavior_policy2(len(self.action_set), self.O, Z, epsilon, posterior[i])
+            policy = behavior_policy2(len(self.action_set), self.O, Z, epsilon, phi[i], sigma[i], lambda_[i])
             # policy = behavior_policy(len(self.action_set), len(self.observation), Z, epsilon)
             self.policies.append(policy)
                     
         # collect
         self.interaction(epi, T)
         
+
+    def evaluate_policy(self, epi, T, theta, phi, sigma, lambda_):
+        self.policies = []
+        # generate initial policies for LTE agents
+        for n in range(var.N):
+            policy = eval_policy(theta[n], phi[n], sigma[n], lambda_[n])
+            self.policies.append(policy)
+            
+        self.interaction(epi, T)
+
 
     def interaction(self, epi, T):
         '''

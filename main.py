@@ -52,13 +52,15 @@ vi = CAVI(var.L, var.W, act_setsize, obv_setsize, Z)
 
 # initialize learned parameter array
 phi = np.array([None] * var.N)
+sigma = np.array(phi)
+lambda_ = np.array(phi)
 
 z_cardinality = []
 
 # learning loop
 for m in range(max_iterations):
     # perform data collection
-    model.collect_episode(episode, var.T, Z, epsilon[m], phi)
+    model.collect_episode(episode, var.T, Z, epsilon[m], phi, sigma, lambda_)
 
     # retrieve data
     # obv_setsize = model.observation.loc[model.observation['value'] >= 0].size
@@ -82,6 +84,8 @@ for m in range(max_iterations):
     phi = vi.phi
     sigma = vi.sigma
     lambda_ = vi.lambda_
+    
+    model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_)
 
 
 # plot ELBO curve
