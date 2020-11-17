@@ -79,12 +79,83 @@ class uniform_policy(object):
         return 0
 
 
+# =============================================================================
+# class behavior_policy(object):
+#     def __init__(self, A, O, Z, epsilon):
+#         self.A = A
+#         self.O = O
+#         self.Z = Z
+#         self.epsilon = epsilon
+#         
+#         self.prob_table()
+#         
+#     
+#     def prob_table(self):
+#         # initial node distribution
+#         self.eta = np.zeros(self.Z)
+#         self.eta[0] = 1
+#         
+#         # initialize p(z_t|a_0, ..., a_{t-1}, o_0, ..., o_t)
+#         self.pz = np.array(self.eta)
+#         
+#         # uniform node transition prob
+#         self.node_prob = np.ones((self.A, self.O, self.Z, self.Z))
+#         self.node_prob /= np.sum(self.node_prob, axis = 3)[...,np.newaxis]
+#         
+#         # uniform exploration action probabilities
+#         self.action_prob = np.random.default_rng().dirichlet(np.ones(self.A), self.Z)
+#     
+#     
+#     def select_action(self, node: int):
+#         '''
+#         Parameters
+#         ----------
+#         node : int
+#             current node.
+#         Returns
+#         -------
+#         output the index of action to take given node.
+#         '''
+#         # extract probability vector for given node
+#         prob_set = self.action_prob[node, :]
+#         # pick an action
+#         act = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
+#         
+#         return np.where(act == 1)[0][0]
+#         
+#     
+#     def next_node(self, cur_node: int, act: int, obs: int):
+#         '''
+#         Parameters
+#         ----------
+#         act : int
+#             index of action taken.
+#         obs : int
+#             index of observation received after act is taken.
+#         cur_node : int
+#             index of current node.
+#         Returns
+#         -------
+#         output node distribution for next step given action, obseration, and 
+#         current node.
+#         '''
+#         # extract probability vector for given node, action, observation
+#         prob_set = self.node_prob[act, obs, cur_node, :]
+#         # pick a noode
+#         node = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
+#         
+#         return np.where(node == 1)[0][0]
+# =============================================================================
 class behavior_policy(object):
-    def __init__(self, A, O, Z, epsilon):
+    def __init__(self, A, O, Z, epsilon, phi = None, sigma = None, lambda_ = None):
         self.A = A
         self.O = O
         self.Z = Z
         self.epsilon = epsilon
+        # pi array
+        self.phi = phi
+        self.sigma = sigma
+        self.lambda_ = lambda_
         
         self.prob_table()
         
@@ -94,58 +165,85 @@ class behavior_policy(object):
         self.eta = np.zeros(self.Z)
         self.eta[0] = 1
         
-        # initialize p(z_t|a_0, ..., a_{t-1}, o_0, ..., o_t)
-        self.pz = np.array(self.eta)
-        
-        # uniform node transition prob
+        # initial node transition prob
         self.node_prob = np.ones((self.A, self.O, self.Z, self.Z))
         self.node_prob /= np.sum(self.node_prob, axis = 3)[...,np.newaxis]
         
         # uniform exploration action probabilities
-        self.action_prob = np.random.default_rng().dirichlet(np.ones(self.A), self.Z)
+        explore_act = np.ones((self.Z, self.A))
+        explore_act /= np.sum(explore_act, axis = 1)[:, np.newaxis]
+        
+        if self.phi is None:
+            # initial exploitation action probabilities
+            exploit_act = np.array(explore_act)
+            
+        else:
+            assert self.phi.shape == explore_act.shape
+            exploit_act = self.phi / np.sum(self.phi, axis = -1)[..., np.newaxis]
+            
+            # v = self.sigma / (self.sigma + self.lambda_)
+            # self.node_prob = np.empty_like(self.sigma)
+            # self.node_prob[..., 0] = v[..., 0]
+            # self.node_prob[..., 1:] = v[..., 1:] * (1 - v[..., :-1]).cumprod(axis = -1)
+            # self.node_prob /= np.sum(self.node_prob, axis = -1)[..., np.newaxis]
+            
+        self.action_prob = self.epsilon * explore_act + (1 - self.epsilon) * exploit_act
+            
     
+    def refresh_prob(self):
+        # initialize p(z_t|a_0, ..., a_{t-1}, o_0, ..., o_t)
+        self.pz = np.array(self.eta)
+        self.t = 0  # indicator for initial state
+        
     
-    def select_action(self, node: int):
+    def select_action(self, act_pre: int = -1, obv_pre: int = -1):
         '''
         Parameters
         ----------
-        node : int
-            current node.
+        act_pre : int, optional
+            previous action index. The default is -1.
+        obv_pre : int, optional
+            previous observation index. The default is -1.
         Returns
         -------
-        output the index of action to take given node.
+        TYPE
+            DESCRIPTION.
         '''
-        # extract probability vector for given node
-        prob_set = self.action_prob[node, :]
+        if self.t > 0:
+            self.update_action(act_pre, obv_pre)
+        
+        self.t += 1
+        
+        # update action probability marginalizing nodes
+        # p(z_t) * p(a|z)
+        prob_set = self.pz[..., np.newaxis] * self.action_prob
+        # marginalize z
+        prob_set = np.sum(prob_set, axis = 0)
+        # normalize to valid probability
+        prob_set = prob_set / np.sum(prob_set)
+        
         # pick an action
         act = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
         
         return np.where(act == 1)[0][0]
-        
     
-    def next_node(self, cur_node: int, act: int, obs: int):
-        '''
-        Parameters
-        ----------
-        act : int
-            index of action taken.
-        obs : int
-            index of observation received after act is taken.
-        cur_node : int
-            index of current node.
-        Returns
-        -------
-        output node distribution for next step given action, obseration, and 
-        current node.
-        '''
-        # extract probability vector for given node, action, observation
-        prob_set = self.node_prob[act, obs, cur_node, :]
-        # pick a noode
-        node = np.random.default_rng().multinomial(1, prob_set, size = 1)[0]
-        
-        return np.where(node == 1)[0][0]
-        
     
+    def update_action(self, act, obv):
+        assert act >= 0 and obv >= 0
+        # p(z_t|z_{t-1}, a_{t-1}, o_t)
+        p_z_zao = self.node_prob[act, obv]
+        
+        # p(z_{t-1}) * p(a_{t-1}|z)
+        p_az = self.pz * self.action_prob[:, act]
+        # p(z_t, z_{t-1}, a_{t-1}|o_t)
+        p_azz_o = p_az[..., np.newaxis] * p_z_zao
+        # marginalize z_{t-1}, get p(z_t, a_{t-1}|o_t)
+        p_az_o = np.sum(p_azz_o, axis = 0)
+        # normalize, get p(z_t|a_{t-1}, o_t)
+        self.pz = p_az_o / np.sum(p_az_o)
+
+    
+
 class behavior_policy2(object):
     def __init__(self, A, O, Z, epsilon, phi = None, sigma = None, lambda_ = None):
         self.A = A
@@ -181,9 +279,14 @@ class behavior_policy2(object):
             self.exploit_act = self.phi / np.sum(self.phi, axis = -1)[..., np.newaxis]
             
             v = self.sigma / (self.sigma + self.lambda_)
+            vv = (1 - v[..., :-1]).cumprod(axis = -1)
             self.node_prob = np.empty_like(self.sigma)
             self.node_prob[..., 0] = v[..., 0]
-            self.node_prob[..., 1:] = v[..., 1:] * (1 - v[..., :-1]).cumprod(axis = -1)
+            self.node_prob[..., 1:-1] = v[..., 1:-1] * vv[..., :-1]
+            self.node_prob[..., -1] = vv[..., -1]
+            self.node_prob /= np.sum(self.node_prob, axis = -1)[..., np.newaxis]
+            
+        self.action_prob = self.epsilon * self.explore_act + (1 - self.epsilon) * self.exploit_act
             
     
     def refresh_prob(self):
@@ -215,13 +318,13 @@ class behavior_policy2(object):
         self.u = np.random.default_rng().uniform()
         
         if self.u > self.epsilon:
-            action_prob = self.exploit_act
+            act_prob = self.exploit_act
         else:
-            action_prob = self.explore_act
+            act_prob = self.explore_act
         
         # update action probability marginalizing nodes
         # p(z_t) * p(a|z)
-        prob_set = self.pz[..., np.newaxis] * action_prob
+        prob_set = self.pz[..., np.newaxis] * act_prob
         # marginalize z
         prob_set = np.sum(prob_set, axis = 0)
         # normalize to valid probability
@@ -239,12 +342,12 @@ class behavior_policy2(object):
         p_z_zao = self.node_prob[act, obv]
         
         if u > self.epsilon:
-            action_prob = self.exploit_act[:, act]
+            act_prob = self.exploit_act[:, act]
         else:
-            action_prob = self.explore_act[:, act]
+            act_prob = self.explore_act[:, act]
         
         # p(z_{t-1}) * p(a_{t-1}|z)
-        p_az = self.pz * action_prob[:, act]
+        p_az = self.pz * act_prob
         # p(z_t, z_{t-1}, a_{t-1}|o_t)
         p_azz_o = p_az[..., np.newaxis] * p_z_zao
         # marginalize z_{t-1}, get p(z_t, a_{t-1}|o_t)

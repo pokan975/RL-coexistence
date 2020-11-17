@@ -37,7 +37,7 @@ class CAVI(object):
         # parameters of p(pi|z, theta) for (n, i) LTE & WiFi agents
         self.theta = np.ones((self.N, self.Z, self.A))
         # parameters of p(alpha|c, d) for (n, a, o, i) LTE & WiFi agents
-        self.c = 1 * np.ones((self.N, self.A, self.O, self.Z))
+        self.c = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
         self.d = 1e3 * np.ones((self.N, self.A, self.O, self.Z))
     
     
@@ -62,7 +62,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 50, tol = 1e-2):
+    def fit(self, data, policy_list, max_iter = 20, tol = 1e-2):
         '''
         Parameters
         ----------
@@ -286,24 +286,25 @@ class CAVI(object):
             # get nu_t^k
             v = tuple(np.where(self.action[n][k] >= 0)[0])
             v = self.nu[k, v]
-            
-            tt = np.ones(len(aa)).cumsum()[::-1]
+            v = np.cumsum(v[::-1])[::-1]
             
             # update parameter sigma
             # get q(z) array for agent n, episode k
-            q = np.array(self.qz[n][k])
+            q = np.array(self.qz[n][k], ndmin = 2)
             # times action prob
             q *= self.pi[n, :, aa]
             # times node trans prob
             q = q[..., np.newaxis] * self.omega[n, aa, oo, ...]
-            q *= tt[..., None, None]
-            q *= v[..., None, None]
-            q = np.array(q, ndmin = 3)
-            self.sigma[n, aa, oo, ...] += q
+            q /= np.sum(q,axis = (1,2))[..., None, None]
             
-            #update parameter lambda
             qq = np.cumsum(q[..., -1:0:-1], axis = -1)[..., ::-1]
-            self.lambda_[n, aa, oo, :, :-1] += qq
+            
+            q *= v[..., None, None]
+            qq *= v[..., None, None]
+            
+            for i, ao in enumerate(zip(aa, oo)):
+                self.sigma[n, ao[0], ao[1], ...] += q[i]
+                self.lambda_[n, ao[0], ao[1], :, :-1] += qq[i]
             
         # self.lambda_ /= self.ep
         self.lambda_ += (self.a / self.b)[..., None]
@@ -316,19 +317,19 @@ class CAVI(object):
         n_k_pair = itt.product(range(self.N), range(self.ep))
         for (n, k) in n_k_pair:
             # get act #
-            aa = tuple(self._action[n][k])
+            aa = self._action[n][k]
             # get q(z)
-            q = np.array(self.qz[n][k])
+            q = np.array(self.qz[n][k], ndmin = 2)
             # get nu_t^k
             v = tuple(np.where(self.action[n][k] >= 0)[0])
             v = self.nu[k, v]
+            v = np.cumsum(v[::-1])[::-1]
             
-            tt = np.ones(len(aa)).cumsum()[::-1]
-            q *= tt[..., np.newaxis]
+            # tt = np.ones(len(aa)).cumsum()[::-1]
+            # q *= tt[..., np.newaxis]
             q *= v[..., np.newaxis]
-            self.phi[n, :, aa] += q
-            # for i, a in enumerate(aa):
-            #     self.phi[n, :, a] += (q[i] * (q.shape[0] - i + 1))
+            for i, a in enumerate(aa):
+                self.phi[n, :, a] += q[i]
                 
         # self.phi /= self.ep
             
@@ -393,7 +394,7 @@ class CAVI(object):
         # rescale rewards
         r_max = np.max(rewards)
         r_min = np.min(rewards)
-        rewards = (rewards - r_min + 1) #/ (r_max - r_min + 1)
+        rewards = (rewards - r_min + 1) / (r_max - r_min + 1)
         
         # impose discount factor
         ga = np.ones((self.ep, self.T))
@@ -450,6 +451,6 @@ class CAVI(object):
         
         for n in range(self.N):
             a1 = np.sum(self.phi[n] - self.theta[n], axis = -1)
-            node_num[n] = len(a1[a1 > 1e-6])
+            node_num[n] = len(a1[a1 > 0])
             
         return node_num

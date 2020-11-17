@@ -88,7 +88,9 @@ class POMDP(object):
             policy = eval_policy(theta[n], phi[n], sigma[n], lambda_[n])
             self.policies.append(policy)
             
-        self.interaction(epi, T)
+        rewards = np.array(self.eval_interact(epi, T))
+        
+        return np.mean(rewards)
 
 
     def interaction(self, epi, T):
@@ -133,7 +135,7 @@ class POMDP(object):
             # global timer for all channels
             self.timer = 0
             # episode length counter
-            self.t = 0
+            counter = 0
             
             # assign initial action for each agent
             for n in range(var.N):
@@ -143,14 +145,14 @@ class POMDP(object):
                 self.assign_action(n, act_index)
             
             # episode collection loop
-            while self.t < T:
+            while counter < T:
                 # if agent has no running action, pick a new one
                 for n in np.where(self.agents[:, 0] == 0)[0]:
                     # find previous action
-                    temp_a = act_history[n, :self.t]
+                    temp_a = act_history[n, :counter]
                     pre_act = temp_a[temp_a >= 0][-1]
                     # find previous observation
-                    temp_o = obv_history[n, :self.t]
+                    temp_o = obv_history[n, :counter]
                     pre_obv = temp_o[temp_o >= 0][-1]
                     
                     # find current node given previous node, action, observation
@@ -170,12 +172,12 @@ class POMDP(object):
                     # compute golbal rewards (round to reduce possible number of values)
                     rr = round(sum(map(self.reward, comp_rwd)))
                     # bound reward value
-                    global_reward[self.t] = max(min(40, rr), -40)
+                    global_reward[counter] = max(min(40, rr), -40)
                     
                     
                     for nn in comp_rwd:
                         # add action index to action history
-                        act_history[nn, self.t] = self.agents[nn, -1]
+                        act_history[nn, counter] = self.agents[nn, -1]
                         # add observation to action history
                         obv_ = round(self.agentTimer[nn, 1] - self.agentTimer[nn, 0])
                         # bound observation value
@@ -187,17 +189,17 @@ class POMDP(object):
                             l = self.observation.loc[self.observation['value'] != -1]
                             self.observation.loc[l.size, 'value'] = obv_
                         
-                        obv_history[nn, self.t] = self.observation.index[self.observation['value'] == obv_][0]
+                        obv_history[nn, counter] = self.observation.index[self.observation['value'] == obv_][0]
                         
                         # check (act, obv, reward) is unique tuple for agent n,
                         # add it to unique set, this set will be used to compute
                         # the truncation level for agent n
-                        a_o_r = (obv_history[nn, self.t], global_reward[self.t])
+                        a_o_r = (obv_history[nn, counter], global_reward[counter])
                         self.unique_a_o_r[nn].add(a_o_r)
                         assert len(self.unique_a_o_r[nn]) < 200
                         
                     # episode proceeds
-                    self.t += 1
+                    counter += 1
                     
                 
                 # update global timer (unit: us)
@@ -206,6 +208,109 @@ class POMDP(object):
             
             self.episodes.append((act_history, obv_history, global_reward))
             self.histories.append((act_history, obv_history))
+    
+    
+    def eval_interact(self, epi, T):
+        '''
+        Parameters
+        ----------
+        epi : int
+            number of episodes.
+        T : int
+            length of each episode.
+        Returns
+        -------
+        interactions for performance evaluation, using learned policy.
+        '''
+        # initialize list of episodes
+        rewards = []
+        
+        for ep in range(epi):
+            # initialize local reward tracker for each agent
+            self.local_rwd = np.zeros(var.N)
+            # initialize state indicator for each agent
+            # in-action bit | ch# | sensing time (us) | transmission time (us) |
+            # transmission time (fixed) | action index
+            self.agents = np.zeros((var.N, 6), dtype = object)
+            # initialize timing recorder for computing actual sensing duration
+            # sensing start | sensing end | sensing start bit | transmission start bit
+            # transmission start bit used as flag for computating local reward
+            self.agentTimer = np.zeros((var.N, 4))
+            # initialize channel occupancy indicator for each channel
+            self.ch_occupancy = np.zeros(len(self.ch) + 1, dtype = np.int)
+            # initialize action history array (-1 means that entry is none)
+            act_history = np.zeros(var.N, dtype = np.int)
+            # initialize obsveration history array (-1 means that entry is none)
+            obv_history = np.zeros(var.N, dtype = np.int)
+            # initialize node history list
+            node_history = np.zeros(var.N, dtype = np.int)
+            # global reward array
+            global_reward = np.zeros(T, dtype = np.int)
+        
+            # global timer for all channels
+            self.timer = 0
+            # episode length counter
+            counter = 0
+            
+            # assign initial action for each agent
+            for n in range(var.N):
+                # initial node at 0
+                node_history[n] = 0
+                # pick random action from policy
+                act_index = self.policies[n].select_action(0)
+                self.assign_action(n, act_index)
+            
+            # episode collection loop
+            while counter < T:
+                # if agent has no running action, pick a new one
+                for n in np.where(self.agents[:, 0] == 0)[0]:
+                    # find previous node
+                    pre_node = node_history[n]
+                    # find previous action
+                    pre_act = act_history[n]
+                    # find previous observation
+                    pre_obv = obv_history[n]
+                    
+                    # find current node given previous node, action, observation
+                    node_index = self.policies[n].next_node(pre_node, pre_act, pre_obv)
+                    node_history[n] = node_index
+                    act_index = self.policies[n].select_action(node_index)
+                    # fill in action info
+                    self.assign_action(n, act_index)
+                
+                # agents run actions
+                for n in range(var.N):
+                    self.action(n)
+                
+                # extract indices of agents that need to compute rewards
+                comp_rwd = np.where(self.agentTimer[:, 3] == 1)[0]
+                # if some agents compute their rewards, episode proceeds
+                if comp_rwd.size != 0:
+                    # compute golbal rewards (round to reduce possible number of values)
+                    rr = round(sum(map(self.reward, comp_rwd)))
+                    # bound reward value
+                    global_reward[counter] = max(min(40, rr), -40)
+                    
+                    for nn in comp_rwd:
+                        # add action index to action history
+                        act_history[nn] = self.agents[nn, -1]
+                        # add observation to action history
+                        obv_ = round(self.agentTimer[nn, 1] - self.agentTimer[nn, 0])
+                        # bound observation value
+                        obv_ = min(obv_, 20)
+                        obv_history[nn] = self.observation.index[self.observation['value'] == obv_][0]
+                        
+                    
+                    # episode proceeds
+                    counter += 1
+                    
+                # update global timer (unit: us)
+                self.timer = round(self.timer + 1e-3, 3)
+                
+            rewards.append(global_reward)
+            
+        return rewards
+    
     
     
     def action(self, index):

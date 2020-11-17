@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from POMDP_6 import POMDP
-from Variational_Bayes3 import CAVI
+from Variational_Bayes4 import CAVI
 
 plt.rcParams['figure.dpi'] = 100
 plt.rcParams['font.size'] = 10
@@ -41,9 +41,6 @@ model.initialize()
 act_setsize = len(model.action_set)
 # initialize CAVI object
 vi = CAVI(var.L, var.W, act_setsize, obv_setsize, Z)
-# initialize prior models
-# input observation & node sets cardinality
-# vi.prior_param()
 
 
 # collecting initial data to generate initial behavior policy
@@ -56,9 +53,10 @@ sigma = np.array(phi)
 lambda_ = np.array(phi)
 
 z_cardinality = []
+reward = []
 
 # learning loop
-for m in range(max_iterations):
+for m in range(1):
     # perform data collection
     model.collect_episode(episode, var.T, Z, epsilon[m], phi, sigma, lambda_)
 
@@ -85,7 +83,7 @@ for m in range(max_iterations):
     sigma = vi.sigma
     lambda_ = vi.lambda_
     
-    model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_)
+    # reward.append(model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_))
 
 
 # plot ELBO curve
