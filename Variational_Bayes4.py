@@ -230,6 +230,48 @@ class CAVI(object):
         self.omega /= np.sum(self.omega, axis = -1)[..., np.newaxis]
     
 
+# =============================================================================
+#     def update_z(self):
+#         # initialize marginal q(z) for each (n, k) indices
+#         # each element = arrays of q(z) for each (n, k) agent
+#         # each array has dimension T_k * |Z|
+#         self.qz = [[] for i in range(self.N)]
+#         
+#         # self.v_hat = np.ones(self.reweight_r.shape)
+#         n_k_pair = itt.product(range(self.N), range(self.ep))
+#         
+#         for (n, k) in n_k_pair:
+#             
+#             # extract action history for agent n at episode k
+#             temp = self.action[n][k, :]
+#             index = np.where(temp >= 0)[0]
+#             assert len(index) > 0
+#             act_n_k = temp[index]
+#             
+#             temp = self.obv[n][k, :]
+#             obv_n_k = temp[index]
+#             
+#             # create q(z) table for agent n at episode k
+#             qz_n_k = np.zeros((len(index), self.Z))
+#             qz_n_k[0, :] = self.eta[n, :]
+#             
+#             for i, t in enumerate(index):
+#                 # if this is the 1st action
+#                 if i == 0:
+#                     t1 = np.array(qz_n_k[i, :])
+#                 else:
+#                     # t1 = np.array(qz_n_k[i - 1, :])
+#                     t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
+#                     t1 = np.sum(t1, axis = 0)
+#                 
+#                 t1 *= self.pi[n, :, act_n_k[i]]
+#                 t2 = np.sum(t1)
+#                 assert t2 > 0
+#                 qz_n_k[i, :] = t1 / t2#(t1 / t2) * self.nu[k, t]
+#                 # self.v_hat[k, t] *= t2
+#             
+#             self.qz[n].append(qz_n_k)
+# =============================================================================
     def update_z(self):
         # initialize marginal q(z) for each (n, k) indices
         # each element = arrays of q(z) for each (n, k) agent
@@ -251,22 +293,19 @@ class CAVI(object):
             obv_n_k = temp[index]
             
             # create q(z) table for agent n at episode k
-            qz_n_k = np.zeros((len(index), self.Z))
+            qz_n_k = np.zeros((len(index) + 1, self.Z))
             qz_n_k[0, :] = self.eta[n, :]
             
             for i, t in enumerate(index):
                 # if this is the 1st action
-                if i == 0:
-                    t1 = np.array(qz_n_k[i, :])
-                else:
-                    # t1 = np.array(qz_n_k[i - 1, :])
-                    t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
-                    t1 = np.sum(t1, axis = 0)
-                
+                t1 = np.array(qz_n_k[i, :])
                 t1 *= self.pi[n, :, act_n_k[i]]
+                t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i], obv_n_k[i], ...]
+                t1 = np.sum(t1, axis = 0)
+                
                 t2 = np.sum(t1)
                 assert t2 > 0
-                qz_n_k[i, :] = t1 / t2#(t1 / t2) * self.nu[k, t]
+                qz_n_k[i + 1, :] = t1 / t2#(t1 / t2) * self.nu[k, t]
                 # self.v_hat[k, t] *= t2
             
             self.qz[n].append(qz_n_k)
@@ -290,7 +329,7 @@ class CAVI(object):
             
             # update parameter sigma
             # get q(z) array for agent n, episode k
-            q = np.array(self.qz[n][k], ndmin = 2)
+            q = np.array(self.qz[n][k], ndmin = 2)[0:-1]
             # times action prob
             q *= self.pi[n, :, aa]
             # times node trans prob
@@ -319,7 +358,7 @@ class CAVI(object):
             # get act #
             aa = self._action[n][k]
             # get q(z)
-            q = np.array(self.qz[n][k], ndmin = 2)
+            q = np.array(self.qz[n][k], ndmin = 2)[0:-1]
             # get nu_t^k
             v = tuple(np.where(self.action[n][k] >= 0)[0])
             v = self.nu[k, v]
@@ -394,7 +433,7 @@ class CAVI(object):
         # rescale rewards
         r_max = np.max(rewards)
         r_min = np.min(rewards)
-        rewards = (rewards - r_min + 1) / (r_max - r_min + 1)
+        rewards = (rewards - r_min + 1) #/ (r_max - r_min + 1)
         
         # impose discount factor
         ga = np.ones((self.ep, self.T))
