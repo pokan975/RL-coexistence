@@ -228,12 +228,9 @@ class CAVI(object):
     
 
     def update_z(self):
-        # initialize marginal q(z) for each (n, k) indices
-        # each element = arrays of q(z) for each (n, k) agent
-        # each array has dimension T_k * |Z|
-        self.qz = [[] for i in range(self.N)]
+        fwd_alpha = [[] for i in range(self.N)]
+        back_beta = [[] for i in range(self.N)]
         
-        # self.v_hat = np.ones(self.reweight_r.shape)
         n_k_pair = itt.product(range(self.N), range(self.ep))
         
         for (n, k) in n_k_pair:
@@ -248,25 +245,25 @@ class CAVI(object):
             obv_n_k = temp[index]
             
             # create q(z) table for agent n at episode k
-            qz_n_k = np.zeros((len(index), self.Z))
-            qz_n_k[0, :] = self.eta[n, :]
+            fwd_msg = np.zeros((len(index), self.Z))
+            fwd_msg[0, :] = self.eta[n, :]
             
             for i, t in enumerate(index):
                 # if this is the 1st action
                 if i == 0:
-                    t1 = np.array(qz_n_k[i, :])
+                    t1 = np.array(fwd_msg[i, :])
                 else:
-                    # t1 = np.array(qz_n_k[i - 1, :])
-                    t1 = t1[...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
+                    t1 = fwd_msg[i-1][...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
                     t1 = np.sum(t1, axis = 0)
                 
                 t1 *= self.pi[n, :, act_n_k[i]]
-                t2 = np.sum(t1)
-                assert t2 > 0
-                qz_n_k[i, :] = t1 / t2#(t1 / t2) * self.nu[k, t]
-                # self.v_hat[k, t] *= t2
+                fwd_msg[i, :] = t1
+             
+            fwd_alpha[n].append(fwd_msg)
+        
+        
+        self.qz = [[] for i in range(self.N)]
             
-            self.qz[n].append(qz_n_k)
     
     
     def update_v(self):
@@ -380,7 +377,14 @@ class CAVI(object):
                         
                 action_num[np.array(agent_idx)] += 1
                 self.nu[k, t] *= np.prod(np.sum(q_eta, axis = -1)) #/ self.v_hat[k, t]
-
+                
+        
+        self.agent_reward = [[] for i in range(self.ep)]
+        n_k_pair = itt.product(range(self.N), range(self.ep))
+        
+        for (n, k) in n_k_pair:
+            a = tuple(np.where(self.action[n][k] >= 0)[0])
+            self.agent_reward[n].append(self.nu[k, a])
 
 
     def reweight_reward(self):

@@ -165,10 +165,6 @@ class behavior_policy(object):
         self.eta = np.zeros(self.Z)
         self.eta[0] = 1
         
-        # initial node transition prob
-        self.node_prob = np.ones((self.A, self.O, self.Z, self.Z))
-        self.node_prob /= np.sum(self.node_prob, axis = 3)[...,np.newaxis]
-        
         # uniform exploration action probabilities
         explore_act = np.ones((self.Z, self.A))
         explore_act /= np.sum(explore_act, axis = 1)[:, np.newaxis]
@@ -176,16 +172,21 @@ class behavior_policy(object):
         if self.phi is None:
             # initial exploitation action probabilities
             exploit_act = np.array(explore_act)
+            # initial node transition prob
+            self.node_prob = np.ones((self.A, self.O, self.Z, self.Z))
+            self.node_prob /= np.sum(self.node_prob, axis = 3)[...,np.newaxis]
             
         else:
             assert self.phi.shape == explore_act.shape
             exploit_act = self.phi / np.sum(self.phi, axis = -1)[..., np.newaxis]
             
-            # v = self.sigma / (self.sigma + self.lambda_)
-            # self.node_prob = np.empty_like(self.sigma)
-            # self.node_prob[..., 0] = v[..., 0]
-            # self.node_prob[..., 1:] = v[..., 1:] * (1 - v[..., :-1]).cumprod(axis = -1)
-            # self.node_prob /= np.sum(self.node_prob, axis = -1)[..., np.newaxis]
+            v = self.sigma / (self.sigma + self.lambda_)
+            vv = (1 - v[..., :-1]).cumprod(axis = -1)
+            self.node_prob = np.empty_like(self.sigma)
+            self.node_prob[..., 0] = v[..., 0]
+            self.node_prob[..., 1:-1] = v[..., 1:-1] * vv[..., :-1]
+            self.node_prob[..., -1] = vv[..., -1]
+            self.node_prob /= np.sum(self.node_prob, axis = -1)[..., np.newaxis]
             
         self.action_prob = self.epsilon * explore_act + (1 - self.epsilon) * exploit_act
             
@@ -362,7 +363,7 @@ class eval_policy(object):
     def __init__(self, theta, phi, sigma, lambda_):
         # remove nodes
         removed_nodes = np.sum(phi - theta, axis = -1)
-        removed_nodes = tuple(np.where(removed_nodes <= 0)[0])
+        removed_nodes = tuple(np.where(removed_nodes < 1e-6)[0])
         
         self.action_prob = np.delete(phi, removed_nodes, axis = 0)
         self.action_prob = self.action_prob / np.sum(self.action_prob, axis = -1)[..., np.newaxis]
@@ -373,7 +374,7 @@ class eval_policy(object):
         t2 = np.delete(lambda_, removed_nodes, axis = 3)
         
         v = t1 / (t1 + t2)
-        self.node_prob = np.empty_like(sigma)
+        self.node_prob = np.empty_like(v)
         self.node_prob[..., 0] = v[..., 0]
         self.node_prob[..., 1:] = v[..., 1:] * (1 - v[..., :-1]).cumprod(axis = -1)
         

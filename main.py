@@ -31,7 +31,7 @@ obv_setsize = 20
 
 ###############################################################################
 # for evaluation phase
-eval_episode = 100
+eval_episode = 1000
 eval_T = 500
 
 ###############################################################################
@@ -56,7 +56,7 @@ sigma = np.array(phi)
 lambda_ = np.array(phi)
 
 z_cardinality = []
-reward = []
+value = []
 
 # learning loop
 for m in range(1):
@@ -86,11 +86,11 @@ for m in range(1):
     sigma = vi.sigma
     lambda_ = vi.lambda_
     
-    # reward.append(model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_))
+    value.append(model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_))
 
 
 # plot ELBO curve
-plt.plot(vi.elbo_values, marker = "o")
+plt.plot(vi.elbo_values[1:], marker = "s", linewidth = 3)
 plt.xlabel("iteration")
 plt.ylabel("ELBO value")
 plt.grid()
