@@ -38,7 +38,7 @@ class CAVI(object):
         self.theta = np.ones((self.N, self.Z, self.A)) / self.A
         # parameters of p(alpha|c, d) for (n, a, o, i) LTE & WiFi agents
         self.c = 0.1 * np.ones((self.N, self.A, self.O, self.Z))
-        self.d = 1e3 * np.ones((self.N, self.A, self.O, self.Z))
+        self.d = 1e2 * np.ones((self.N, self.A, self.O, self.Z))
     
     
     def init_q_param(self):
@@ -62,7 +62,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 50, tol = 1e-2):
+    def fit(self, data, policy_list, max_iter = 50, tol = 1e-4):
         '''
         Parameters
         ----------
@@ -123,7 +123,6 @@ class CAVI(object):
             
             # if converged, stop iteration
             if np.abs(self.elbo_values[-2] - self.elbo_values[-1]) <= tol:
-                # print('CAVI converged with ELBO(q) %.3f at iteration %d'%(self.elbo_values[-1], it))
                 break
         
     
@@ -208,8 +207,8 @@ class CAVI(object):
     
     def calc_pi_omega(self):
         # build action prob pi
-        t1 = digamma(np.sum(self.phi, axis = -1))
-        self.pi = np.exp(digamma(self.phi) - t1[..., np.newaxis])
+        t1 = digamma(self.phi) - digamma(np.sum(self.phi, axis = -1))[..., np.newaxis]
+        self.pi = np.exp(t1)
         # normalize to valid prob distribution
         self.pi /= np.sum(self.pi, axis = -1)[..., np.newaxis]
         
@@ -228,104 +227,115 @@ class CAVI(object):
     
 
     def update_z(self):
-        fwd_alpha = [[] for i in range(self.N)]
-        back_beta = [[] for i in range(self.N)]
+        # compute alpha and beta (forward and backward messages) for marginal q(z)
+        self.fwd_alpha = [[] for i in range(self.N)]
+        self.back_beta = [[] for i in range(self.N)]
         
         n_k_pair = itt.product(range(self.N), range(self.ep))
         
         for (n, k) in n_k_pair:
-            
             # extract action history for agent n at episode k
-            temp = self.action[n][k, :]
-            index = np.where(temp >= 0)[0]
-            assert len(index) > 0
-            act_n_k = temp[index]
+            act = self._action[n][k]
             
-            temp = self.obv[n][k, :]
-            obv_n_k = temp[index]
+            alpha_t = np.zeros((len(act), self.Z))
+            alpha_t[0, :] = self.eta[n]
             
-            # create q(z) table for agent n at episode k
-            fwd_msg = np.zeros((len(index), self.Z))
-            fwd_msg[0, :] = self.eta[n, :]
+            ob = tuple(self._obv[n][k][:-1])
             
-            for i, t in enumerate(index):
-                # if this is the 1st action
-                if i == 0:
-                    t1 = np.array(fwd_msg[i, :])
-                else:
-                    t1 = fwd_msg[i-1][...,np.newaxis] * self.omega[n, act_n_k[i-1], obv_n_k[i-1], ...]
-                    t1 = np.sum(t1, axis = 0)
+            temp = self.pi[n, :, (act[:-1])]
+            temp = temp[..., np.newaxis] * self.omega[n, (act[:-1]), ob, ...]
+            
+            beta_t = [self.calc_beta(n, k, 0)]
+            
+            for t in range(1, len(act)):
+                beta_t.append(self.calc_beta(n, k, t))
                 
-                t1 *= self.pi[n, :, act_n_k[i]]
-                fwd_msg[i, :] = t1
+                a = alpha_t[t - 1][..., np.newaxis] * temp[t - 1, ...]
+                alpha_t[t, :] = np.sum(a, axis = 0)
              
-            fwd_alpha[n].append(fwd_msg)
+            self.fwd_alpha[n].append(alpha_t)
+            self.back_beta[n].append(beta_t)
         
-        
-        self.qz = [[] for i in range(self.N)]
             
+    def calc_beta(self, n, k, t):
+        # backward message for agent n, episode k, up to time index t
+        beta = np.zeros((t + 1, self.Z))
+        
+        act = self._action[n][k][: t + 1]
+        beta[t, :] = self.pi[n, :, act[-1]]
+        
+        if t > 0:
+            act = tuple(act[:-1])
+            ob = tuple(self._obv[n][k][:t])
+        
+            temp = self.pi[n, :, act]
+            temp = temp[..., np.newaxis] * self.omega[n, act, ob, ...]
+        
+            for i in range(t - 1, -1, -1):
+                b = temp[i] * beta[i + 1][np.newaxis, ...]
+                beta[i, :] = np.sum(b, axis = -1)
+            
+        return beta
     
     
     def update_v(self):
-        
-        self.sigma = np.ones((self.N, self.A, self.O, self.Z, self.Z))
+        self.sigma = np.zeros((self.N, self.A, self.O, self.Z, self.Z))
         self.lambda_ = np.zeros((self.N, self.A, self.O, self.Z, self.Z))
         
         n_k_pair = itt.product(range(self.N), range(self.ep))
         for (n, k) in n_k_pair:
-            # get act #
-            aa = tuple(self._action[n][k])
-            # get obv #
-            oo = tuple(self._obv[n][k])
-            # get nu_t^k
+            alpha = self.fwd_alpha[n][k] # array
+            beta = self.back_beta[n][k]  # list of arrays
+            
+            # get nu for (n, k)
             v = tuple(np.where(self.action[n][k] >= 0)[0])
             v = self.nu[k, v]
-            v = np.cumsum(v[::-1])[::-1]
             
-            # update parameter sigma
-            # get q(z) array for agent n, episode k
-            q = np.array(self.qz[n][k], ndmin = 2)
-            # times action prob
-            q *= self.pi[n, :, aa]
-            # times node trans prob
-            q = q[..., np.newaxis] * self.omega[n, aa, oo, ...]
-            q /= np.sum(q,axis = (1,2))[..., None, None]
-            
-            qq = np.cumsum(q[..., -1:0:-1], axis = -1)[..., ::-1]
-            
-            q *= v[..., None, None]
-            qq *= v[..., None, None]
-            
-            for i, ao in enumerate(zip(aa, oo)):
-                self.sigma[n, ao[0], ao[1], ...] += q[i]
-                self.lambda_[n, ao[0], ao[1], :, :-1] += qq[i]
-            
-        # self.lambda_ /= self.ep
-        self.lambda_ += (self.a / self.b)[..., None]
-
+            # get act #
+            aa = self._action[n][k]
+            # get obv #
+            oo = self._obv[n][k]
+                        
+            for t in range(len(aa)):
+                for tau in range(1, t + 1):
+                    qz = alpha[tau-1] * self.pi[n, :, aa[tau-1]]
+                    qz = qz[..., np.newaxis] * self.omega[n, aa[tau-1], oo[tau-1], ...]
+                    qz *= beta[t][tau][np.newaxis, ...]
+                    assert np.sum(qz) > 0
+                    qz /= np.sum(qz)
+                    
+                    self.sigma[n, aa[tau-1], oo[tau-1], ...] += (v[t-1] * qz)
+                    
+                    qq = np.cumsum(qz[..., -1:0:-1], axis = -1)[..., ::-1]
+                    self.lambda_[n, aa[tau-1], oo[tau-1], :, :-1] += (v[t-1] * qq)
+                    
+        self.sigma = (self.sigma / self.ep) + 1
+        self.lambda_ = (self.lambda_ / self.ep) + (self.a / self.b)[..., None]
+        
     
     def update_pi(self):
-        self.phi = np.empty_like(self.theta)
-        self.phi[...] = self.theta
+        self.phi = np.zeros(self.theta.shape)
         
         n_k_pair = itt.product(range(self.N), range(self.ep))
         for (n, k) in n_k_pair:
-            # get act #
-            aa = self._action[n][k]
-            # get q(z)
-            q = np.array(self.qz[n][k], ndmin = 2)
-            # get nu_t^k
+            alpha = self.fwd_alpha[n][k] # array
+            beta = self.back_beta[n][k]  # list of arrays
+            
+            # get nu for (n, k)
             v = tuple(np.where(self.action[n][k] >= 0)[0])
             v = self.nu[k, v]
-            v = np.cumsum(v[::-1])[::-1]
             
-            # tt = np.ones(len(aa)).cumsum()[::-1]
-            # q *= tt[..., np.newaxis]
-            q *= v[..., np.newaxis]
-            for i, a in enumerate(aa):
-                self.phi[n, :, a] += q[i]
-                
-        # self.phi /= self.ep
+            # get act #
+            aa = self._action[n][k]
+            
+            for t in range(len(aa)):
+                for tau in range(t + 1):
+                    qz = alpha[tau] * beta[t][tau]
+                    assert np.sum(qz) > 0
+                    qz /= np.sum(qz)
+                    self.phi[n, :, aa[tau]] += (v[t] * qz)
+                    
+        self.phi = (self.phi / self.ep) + self.theta
             
     
     def update_alpha(self):
@@ -379,12 +389,13 @@ class CAVI(object):
                 self.nu[k, t] *= np.prod(np.sum(q_eta, axis = -1)) #/ self.v_hat[k, t]
                 
         
-        self.agent_reward = [[] for i in range(self.ep)]
-        n_k_pair = itt.product(range(self.N), range(self.ep))
+        # self.nu += 1 # test
         
-        for (n, k) in n_k_pair:
-            a = tuple(np.where(self.action[n][k] >= 0)[0])
-            self.agent_reward[n].append(self.nu[k, a])
+        # self.agent_reward = [[] for i in range(self.N)]
+        # n_k_pair = itt.product(range(self.N), range(self.ep))
+        # for (n, k) in n_k_pair:
+        #     a = tuple(np.where(self.action[n][k] >= 0)[0])
+        #     self.agent_reward[n].append(self.nu[k, a])
 
 
     def reweight_reward(self):
@@ -395,11 +406,13 @@ class CAVI(object):
         r_max = np.max(self.reweight_r)
         r_min = np.min(self.reweight_r)
         self.reweight_r = (self.reweight_r - r_min + 1) / (r_max - r_min + 1)
-        
         # impose discount factor
         ga = np.ones((self.ep, self.T))
         ga[:, 1:] *= 0.9
         self.reweight_r *= np.cumprod(ga, axis = 1)
+        
+        self.rr = np.empty_like(self.reweight_r)
+        self.rr[...] = self.reweight_r
         
         # in each episode, compute reweighted rewards
         for k in range(self.ep):

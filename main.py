@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from POMDP_6 import POMDP
-from Variational_Bayes4 import CAVI
+from Variational_Bayes5 import CAVI
 from Q_learning import Q_learner
 
 plt.rcParams['figure.dpi'] = 100
@@ -55,8 +55,8 @@ phi = np.array([None] * var.N)
 sigma = np.array(phi)
 lambda_ = np.array(phi)
 
-z_cardinality = []
-value = []
+z_cardinality = [np.array([Z] * var.N)]
+value = [0]
 
 # learning loop
 for m in range(1):
@@ -86,7 +86,7 @@ for m in range(1):
     sigma = vi.sigma
     lambda_ = vi.lambda_
     
-    value.append(model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_))
+    # value.append(model.evaluate_policy(eval_episode, eval_T, theta, phi, sigma, lambda_))
 
 
 # plot ELBO curve

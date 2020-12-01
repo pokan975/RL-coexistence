@@ -174,7 +174,7 @@ class POMDP(object):
                     # compute golbal rewards (round to reduce possible number of values)
                     rr = round(sum(map(self.reward, comp_rwd)))
                     # bound reward value
-                    global_reward[counter] = max(min(40, rr), -40)
+                    global_reward[counter] = rr#max(min(40, rr), -40)
                     
                     
                     for nn in comp_rwd:
@@ -286,7 +286,7 @@ class POMDP(object):
                 # compute golbal rewards (round to reduce possible number of values)
                 rr = round(sum(map(self.reward, comp_rwd)))
                 # bound reward value
-                global_reward[counter] = max(min(40, rr), -40)
+                global_reward[counter] = rr#max(min(40, rr), -40)
                 
                 for nn in comp_rwd:
                     # add action index to action history
