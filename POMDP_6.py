@@ -421,13 +421,13 @@ class POMDP(object):
             
             # no collision
             if self.ch_occupancy[ch_access] == 1:
-                t_diff = self.agents[n, 4] - (var.C1 * t_bo)
+                t_diff = 4*self.agents[n, 4] - (var.C1 * t_bo)
                 rwd += np.sign(t_diff) * np.log(abs(t_diff) + 1)
             
             # collision happens
             else:
                 # extract colliding agents indices
-                col_agents = np.where(self.agents[:, 1] == ch_access)[0]
+                col_agents = np.where((self.agents[:, 1] == ch_access) & (self.agents[:, 2] <= 0))[0]
                 # extract their transmission durations
                 t_col = sum(self.agents[:, 4][col_agents])
                 rwd -= var.C3 * np.log(t_col + 1)

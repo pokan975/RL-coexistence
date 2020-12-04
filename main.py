@@ -92,6 +92,6 @@ for m in range(1):
 # plot ELBO curve
 plt.plot(vi.elbo_values[1:], marker = "s", linewidth = 3)
 plt.xlabel("iteration")
-plt.ylabel("ELBO value")
+plt.ylabel("ELBO(q) value")
 plt.grid()
 plt.show()

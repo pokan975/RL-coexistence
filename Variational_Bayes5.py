@@ -62,7 +62,7 @@ class CAVI(object):
         self.b[...] = self.d
         
         
-    def fit(self, data, policy_list, max_iter = 50, tol = 1e-4):
+    def fit(self, data, policy_list, max_iter = 100, tol = 1e-4):
         '''
         Parameters
         ----------
@@ -373,10 +373,10 @@ class CAVI(object):
                         obv_pre = self._obv[nn][k][action_num[nn] - 1]
                         
                         q_node = np.array(self.omega[nn, act_pre, obv_pre, ...])
-                        q_eta[ii] = (q_node * q_eta[ii, :, np.newaxis]).sum(axis = 0)
+                        q_eta[ii] = (q_node * q_eta[ii][:, np.newaxis]).sum(axis = 0)
                     
                     # extract their action #
-                    act_idx = act_array[nn, t]
+                    act_idx = self._action[nn][k][action_num[nn]]#act_array[nn, t]
                     # extract corresponding taken action prob given all nodes
                     q_act = self.pi[nn, :, act_idx]
                     # compute p(a,z)=p(z)p(a|z)
@@ -389,7 +389,7 @@ class CAVI(object):
                 self.nu[k, t] *= np.prod(np.sum(q_eta, axis = -1)) #/ self.v_hat[k, t]
                 
         
-        # self.nu += 1 # test
+        self.nu += 1 # test
         
         # self.agent_reward = [[] for i in range(self.N)]
         # n_k_pair = itt.product(range(self.N), range(self.ep))
@@ -440,10 +440,10 @@ class CAVI(object):
                         # extract p(z_t|z_t-1, a_t-1, o_t)
                         p_node = np.array(self.behave_node_prob[nn, act_pre, obv_pre, ...])
                         # p(z_t, a_t-1, ..., a_0)
-                        p_eta[ii] = (p_node * p_eta[ii, :, np.newaxis]).sum(axis = 0)
+                        p_eta[ii] = (p_node * p_eta[ii][:, np.newaxis]).sum(axis = 0)
                     
                     # extract action #
-                    act_idx = act_array[nn, t]
+                    act_idx = self._action[nn][k][action_num[nn]]#act_array[nn, t]
                     # extract p(a_t|z_t)
                     p_act = self.behave_act_prob[nn, :, act_idx]
                     # compute p(z_t, a_t, ..., a_0)
@@ -464,6 +464,6 @@ class CAVI(object):
         
         for n in range(self.N):
             a1 = np.sum(self.phi[n] - self.theta[n], axis = -1)
-            node_num[n] = len(a1[a1 > 1e-6])
+            node_num[n] = len(a1[a1 > 0])
             
         return node_num
