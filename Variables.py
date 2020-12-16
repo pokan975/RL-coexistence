@@ -9,8 +9,8 @@ put all initial variables & predefined parameters here
 # global variables
 # =============================================================================
 K = 10  # number of episodes
-L = 2   # number of LTE nodes
-W = 2   # number of Wi-Fi nodes
+L = 1   # number of LTE nodes
+W = 1   # number of Wi-Fi nodes
 N = L + W  # number of total agents
 channels = [1] # number of total channels
 

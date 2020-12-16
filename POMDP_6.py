@@ -421,7 +421,8 @@ class POMDP(object):
             
             # no collision
             if self.ch_occupancy[ch_access] == 1:
-                t_diff = 4*self.agents[n, 4] - (var.C1 * t_bo)
+                act_agents = np.where(self.agents[:, 1] == ch_access)[0]
+                t_diff = len(act_agents) * self.agents[n, 4] - (var.C1 * t_bo)
                 rwd += np.sign(t_diff) * np.log(abs(t_diff) + 1)
             
             # collision happens
@@ -437,7 +438,7 @@ class POMDP(object):
         else:
             # get idle duration length
             t_off = self.agents[n, 4]
-            rwd -= np.log(t_off + 1)
+            rwd -= 0#np.log(t_off + 1)
         
         # accumulate reward
         self.local_rwd[n] += rwd

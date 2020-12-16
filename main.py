@@ -10,8 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from POMDP_6 import POMDP
-from Variational_Bayes5 import CAVI
-from Q_learning import Q_learner
+from Variational_Bayes6 import CAVI
 
 plt.rcParams['figure.dpi'] = 100
 plt.rcParams['font.size'] = 10
@@ -42,8 +41,7 @@ model.initialize()
 act_setsize = len(model.action_set)
 # initialize CAVI object
 vi = CAVI(var.L, var.W, act_setsize, obv_setsize, Z)
-# initialize Q-learning object
-ql = Q_learner(var.L, var.W, act_setsize, obv_setsize)
+
 
 
 # collecting initial data to generate initial behavior policy
