@@ -27,10 +27,10 @@ class CAVI(object):
         self.theta = np.ones((self.N, self.Z, self.A)) / self.A
         # parameters of p(alpha|c, d) for (n, a, o) LTE & WiFi agents
         self.c = np.ones((self.N, self.A, self.O))
-        self.d = 1e2 * np.ones((self.N, self.A, self.O))
+        self.d = 1e1 * np.ones((self.N, self.A, self.O))
         # parameters of p(rho|e, f) for (n) LTE & WiFi agents
         self.e = 1
-        self.f = 1e2
+        self.f = 1e1
     
     
     def init_q_param(self):
@@ -53,14 +53,14 @@ class CAVI(object):
         
         # parameters of q(alpha| a, b) for each (n, a, o, i) agent
         self.a = np.ones((self.N, self.A, self.O, self.Z))
-        self.b = 1e2 * np.ones((self.N, self.A, self.O, self.Z))
+        self.b = 1e1 * np.ones((self.N, self.A, self.O, self.Z))
         
         # parameters of q(rho|g, h) for each (n) agent
         self.g = np.ones(self.N)
-        self.h = 1e2 * np.ones(self.N)
+        self.h = 1e1 * np.ones(self.N)
         
         
-    def fit(self, data, policy_list, max_iter = 30, tol = 1e-6):
+    def fit(self, data, policy_list, max_iter = 30, tol = 1e-8):
         '''
         Parameters
         ----------
@@ -107,6 +107,7 @@ class CAVI(object):
         self.reweight_reward()
         # calc initial ELBO(q)
         self.elbo_values = [self.calc_ELBO()]
+        self.card = [np.array([200,200])]
         # CAVI iteration
         for it in range(1, max_iter + 1):
             # CAVI update
@@ -120,7 +121,7 @@ class CAVI(object):
             self.update_alpha() # update each q(alpha) distribution
             # calc ELBO(q) at the end of all updates
             self.elbo_values.append(self.calc_ELBO())
-            
+            self.card.append(self.calc_node_number())
             # if converged, stop iteration
             if np.abs(self.elbo_values[-2] - self.elbo_values[-1]) <= tol:
                 break
@@ -301,10 +302,10 @@ class CAVI(object):
                 if np.sum(qz) > 0:
                     qz /= np.sum(qz)
                 
-                self.delta[n] += (v[t] * qz / self.v_k[k])
+                self.delta[n] += (v[t] * qz / self.v_k)
                 
                 qq = np.cumsum(qz[-1:0:-1])[::-1]
-                self.mu[n, : -1] += (v[t] * qq / self.v_k[k])
+                self.mu[n, : -1] += (v[t] * qq / self.v_k)
                 
         self.delta = (self.delta / self.ep) + 1
         self.mu = (self.mu / self.ep) + (self.g / self.h)[..., None]
@@ -337,10 +338,10 @@ class CAVI(object):
                     if np.sum(qz) > 0:
                         qz /= np.sum(qz)
                     
-                    self.sigma[n, aa[tau-1], oo[tau-1], ...] += (v[t-1] * qz / self.v_k[k])
+                    self.sigma[n, aa[tau-1], oo[tau-1], ...] += (v[t-1] * qz / self.v_k)
                     
                     qq = np.cumsum(qz[..., -1:0:-1], axis = -1)[..., ::-1]
-                    self.lambda_[n, aa[tau-1], oo[tau-1], :, :-1] += (v[t-1] * qq / self.v_k[k])
+                    self.lambda_[n, aa[tau-1], oo[tau-1], :, :-1] += (v[t-1] * qq / self.v_k)
                     
         self.sigma = (self.sigma / self.ep) + 1
         self.lambda_ = (self.lambda_ / self.ep) + (self.a / self.b)[..., None]
@@ -366,7 +367,7 @@ class CAVI(object):
                     qz = alpha[tau] * beta[t][tau]
                     if np.sum(qz) > 0:
                         qz /= np.sum(qz)
-                    self.phi[n, :, aa[tau]] += (v[t] * qz / self.v_k[k])
+                    self.phi[n, :, aa[tau]] += (v[t] * qz / self.v_k)
                     
         self.phi = (self.phi / self.ep) + self.theta
             
@@ -430,7 +431,7 @@ class CAVI(object):
                 
         
         # self.nu += 1 # test
-        self.v_k = np.sum(self.nu, axis = 1) / self.ep
+        self.v_k = np.sum(self.nu) / self.ep
 
 
     def reweight_reward(self):
