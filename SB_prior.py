@@ -261,8 +261,8 @@ class behavior_policy2(object):
     
     def prob_table(self):
         # initial node distribution
-        self.eta = np.zeros(self.Z)
-        self.eta[0] = 1
+        self.eta = np.ones(self.Z)
+        self.eta /= self.Z
         
         # uniform exploration action probabilities
         self.explore_act = np.ones((self.Z, self.A))

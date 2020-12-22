@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from POMDP_6 import POMDP
-from Variational_Bayes6 import CAVI
+from Variational_Bayes7 import CAVI
 
 plt.rcParams['figure.dpi'] = 100
 plt.rcParams['font.size'] = 10
