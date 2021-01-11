@@ -422,7 +422,7 @@ class POMDP(object):
             # no collision
             if self.ch_occupancy[ch_access] == 1:
                 act_agents = np.where(self.agents[:, 1] == ch_access)[0]
-                t_diff = len(act_agents) * self.agents[n, 4] - (var.C1 * t_bo)
+                t_diff = var.N * self.agents[n, 4] - (var.C1 * t_bo)
                 rwd += np.sign(t_diff) * np.log(abs(t_diff) + 1)
             
             # collision happens

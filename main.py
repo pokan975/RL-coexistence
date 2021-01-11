@@ -18,13 +18,13 @@ plt.rcParams['font.size'] = 10
 ###############################################################################
 # for learning phase
 # num of episodes at each collection
-episode = 2
+episode = 3
 # number of learning iterations
 max_iterations = 2
 # exploration factor
 epsilon = np.linspace(0.9, 0.8, max_iterations)
 # truncated number of nodes
-Z = 200
+Z = 100
 
 obv_setsize = 20
 

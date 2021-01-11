@@ -26,11 +26,11 @@ class CAVI(object):
         # parameters of p(pi|z, theta) for (n, i) LTE & WiFi agents
         self.theta = np.ones((self.N, self.Z, self.A)) / self.A
         # parameters of p(alpha|c, d) for (n, a, o) LTE & WiFi agents
-        self.c = np.ones((self.N, self.A, self.O))
-        self.d = 1e1 * np.ones((self.N, self.A, self.O))
+        self.c = 0.1*np.ones((self.N, self.A, self.O))
+        self.d = 10*np.ones((self.N, self.A, self.O))
         # parameters of p(rho|e, f) for (n) LTE & WiFi agents
-        self.e = 1
-        self.f = 1e1
+        self.e = 0.1
+        self.f = 10
     
     
     def init_q_param(self):
@@ -52,15 +52,15 @@ class CAVI(object):
         self.phi[...] = self.theta
         
         # parameters of q(alpha| a, b) for each (n, a, o, i) agent
-        self.a = np.ones((self.N, self.A, self.O, self.Z))
-        self.b = 1e1 * np.ones((self.N, self.A, self.O, self.Z))
+        self.a = 0.1*np.ones((self.N, self.A, self.O, self.Z))
+        self.b = 10*np.ones((self.N, self.A, self.O, self.Z))
         
         # parameters of q(rho|g, h) for each (n) agent
-        self.g = np.ones(self.N)
-        self.h = 1e1 * np.ones(self.N)
+        self.g = 0.1*np.ones(self.N)
+        self.h = 10*np.ones(self.N)
         
         
-    def fit(self, data, policy_list, max_iter = 30, tol = 1e-8):
+    def fit(self, data, policy_list, max_iter = 50, tol = 1e-8):
         '''
         Parameters
         ----------
@@ -279,7 +279,7 @@ class CAVI(object):
             for i in range(t - 1, -1, -1):
                 b = self.omega[n, act[i], ob[i], ...] * self.pi[n, :, act[i + 1]][np.newaxis, ...]
                 b *= beta[i + 1][np.newaxis, ...]
-                beta[i, :] = np.sum(b, axis = -1)
+                beta[i, :] = np.sum(b, axis = 1)
             
         return beta
     
@@ -329,12 +329,12 @@ class CAVI(object):
             aa = self._action[n][k]
             # get obv #
             oo = self._obv[n][k]
-                        
+            
             for t in range(len(aa)):
                 for tau in range(1, t + 1):
-                    qz = alpha[tau-1] * self.pi[n, :, aa[tau-1]]
-                    qz = qz[..., np.newaxis] * self.omega[n, aa[tau-1], oo[tau-1], ...]
-                    qz *= beta[t][tau][np.newaxis, ...]
+                    qz = alpha[tau-1][:, np.newaxis] * self.omega[n, aa[tau-1], oo[tau-1], ...]
+                    qz *= self.pi[n, :, aa[tau]][np.newaxis, :] 
+                    qz *= beta[t][tau][np.newaxis, :]
                     if np.sum(qz) > 0:
                         qz /= np.sum(qz)
                     
@@ -380,11 +380,11 @@ class CAVI(object):
         
         
     def update_rho(self):
-        self.g = self.e * np.ones(self.g.shape) + self.Z
+        self.g = self.e + self.Z * np.ones(self.g.shape)
         
         d2d12 = digamma(self.mu) - digamma(self.delta + self.mu)
         self.h = self.f - np.sum(d2d12, axis = -1)
-                
+        
 
     def reweight_nu(self):
         # extract rewards from each episode
@@ -431,7 +431,7 @@ class CAVI(object):
                 
         
         # self.nu += 1 # test
-        self.v_k = np.sum(self.nu) / self.ep
+        self.v_k = 1#np.sum(self.nu) / self.ep
 
 
     def reweight_reward(self):
