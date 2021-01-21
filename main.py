@@ -9,7 +9,7 @@ import Variables as var
 import numpy as np
 import matplotlib.pyplot as plt
 
-from POMDP_6 import POMDP
+from POMDP_7 import POMDP
 from Variational_Bayes7 import CAVI
 
 plt.rcParams['figure.dpi'] = 100
